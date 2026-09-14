@@ -96,6 +96,7 @@ mates + strand": **N fragments with identical structure are stored once with wei
 | Output prefix | `o` | outputs are named `<prefix>.Transcript_Predictions.gff3` and `<prefix>.protocol_gemorna.txt` (inside outdir, default: current directory); the intermediate predictions file is also prefixed (`<prefix>.predictions.tmp`) | off |
 | Collapse identical fragments | `c` | fragment collapsing on/off (for A/B comparison) | true |
 | Maximum reads per region | `mrpr` | absolute cap of reads kept per region | 4,000,000 |
+| Rescale abundance | `ra` | rescale transcript abundance (score attribute) by 1/down-sampling probability, so abundances in down-sampled regions approximate original read counts (use for TPM-style quantification) | false |
 
 All original parameters are unchanged and fully compatible.
 
@@ -142,6 +143,18 @@ java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_S
 
 To squeeze memory further: `mrpr=2000000 threads=4`. All other parameters (`mrc`, `mnoir`, ...)
 keep their original semantics; see `java -jar GeMoSeq-1.2.3-fast.jar gemoseq`.
+
+### TPM computation
+
+`scripts/gemoseq_tpm.pl` computes TPM values from GeMoSeq GFF3 output (from the `score`
+attribute and exon lengths) and appends them to the mRNA lines. Run GeMoSeq per chromosome,
+concatenate the GFF3 files, then:
+
+```bash
+cat chr*.Transcript_Predictions.gff3 | perl scripts/gemoseq_tpm.pl - > all.tpm.gff3
+```
+
+For unbiased abundances at heavily down-sampled loci, run GeMoSeq with `ra=true`.
 
 ## 5. Building from source
 

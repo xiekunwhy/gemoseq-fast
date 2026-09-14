@@ -553,8 +553,13 @@ public class Region {
 		return strand;
 	}
 
+	/**
+	 * Rescale factor for abundances: 1/sampling probability of this region, i.e. the
+	 * factor that restores read counts reduced by down-sampling back to (approximately)
+	 * the original scale. 1.0 when no down-sampling happened.
+	 */
 	public double getScale() {
-		return totalRecords == 0 ? 1.0 : (double)(totalRecords+nOut)/(double)totalRecords;
+		return 1.0/sampleProb;
 	}
 
 

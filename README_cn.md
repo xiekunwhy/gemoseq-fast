@@ -79,6 +79,7 @@ BAM 上内存随深度×区域长度失控，本分叉把内存与时间做到**
 | Output prefix | `o` | 输出命名为 `<前缀>.Transcript_Predictions.gff3` 与 `<前缀>.protocol_gemorna.txt`（在 outdir 下，默认当前目录）；中间临时文件也用 `<前缀>.predictions.tmp` | 关 |
 | Collapse identical fragments | `c` | 片段折叠开关（对照用） | true |
 | Maximum reads per region | `mrpr` | 区域 reads 绝对上限 | 4,000,000 |
+| Rescale abundance | `ra` | 将转录本丰度（score 属性）按 1/降采样概率还原，使降采样区域的丰度近似原始 reads 数（TPM 类定量需要） | false |
 
 原版参数全部兼容不变。
 
@@ -123,6 +124,17 @@ java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_S
 
 内存还想再压：`mrpr=2000000 threads=4`。其他参数（`mrc`、`mnoir` 等）语义同原版，见
 `java -jar GeMoSeq-1.2.3-fast.jar gemoseq`。
+
+### TPM 计算
+
+`scripts/gemoseq_tpm.pl` 依据 GeMoSeq GFF3 输出（`score` 属性与外显子总长）计算 TPM 并
+追加到 mRNA 行。分染色体跑完后合并计算：
+
+```bash
+cat chr*.Transcript_Predictions.gff3 | perl scripts/gemoseq_tpm.pl - > all.tpm.gff3
+```
+
+降采样明显的热点区若想丰度无偏，跑 GeMoSeq 时请加 `ra=true`。
 
 ## 5. 从源码构建
 

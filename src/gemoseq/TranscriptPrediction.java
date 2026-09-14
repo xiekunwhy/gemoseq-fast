@@ -151,6 +151,7 @@ public class TranscriptPrediction implements JstacsTool {
 		private boolean doSplits;
 		private boolean filterSpillover;
 		private boolean longReads;
+		private boolean rescaleAbundance;
 		
 		private String geneBase;
 		private boolean useChrPrefix;
@@ -467,7 +468,7 @@ public class TranscriptPrediction implements JstacsTool {
 					}
 					
 					list = sg.quantify(sList2[i], config.percentExplained, config.minReadsPerTranscript, config.maxFraction, config.percentAbundance,
-							config.scaleIntronReads, config.delta, config.nIterations, region.getScale(), config.minIntronLength, config.longReads);
+							config.scaleIntronReads, config.delta, config.nIterations, config.rescaleAbundance ? region.getScale() : 1.0, config.minIntronLength, config.longReads);
 					
 					list = filterImplausibleTranscripts(list,config.stranded);
 					list = filterSingleExonGenes(list,config.minReadsPerTranscript);
@@ -685,6 +686,8 @@ public class TranscriptPrediction implements JstacsTool {
 			pars.add(new FileParameter("Reference list","Text file with one reference name per line; only these references are processed and combined into one output (requires sorted BAM with index); mutually exclusive with 'Restrict to reference'","txt,list,tsv,csv,bed",false));
 			pars.add(new SimpleParameter(DataType.STRING,"Output prefix","Write outputs as <prefix>.Transcript_Predictions.gff3 and <prefix>.protocol_gemorna.txt in the output directory (outdir, default: current directory); the intermediate predictions file also carries the prefix",false));
 
+			pars.add(new SimpleParameter(DataType.BOOLEAN,"Rescale abundance","Rescale transcript abundance (score attribute) by 1/down-sampling probability so that abundances in down-sampled regions approximate original read counts; needed for TPM-style quantification",true,false));
+
 			pars.add(new SimpleParameter(DataType.STRING, "Gene prefix", "Prefix to add to all gene names", true,"G"));
 			pars.add(new SimpleParameter(DataType.BOOLEAN, "Gene names with chromosome", "If true, gene names will be constructed as <Gene prefix><chr>.<geneNumber>. Gene numbers will be assigned successively across all chromosomes.", true, false));
 						
@@ -783,6 +786,7 @@ public class TranscriptPrediction implements JstacsTool {
 			Config config = new Config(minIntronLength, maxIntronLength, stranded, minReads, minFraction, minIntronReads, minIntronFraction,
 					maxNumTranscripts, percentExplained, minReadsPerTranscript, minReadsPerGene, maxFraction, percentAbundance, scaleIntronReads,
 					delta, nIterations,stats,minProteinLength,maxGap,longReads,geneBase, useChrPrefix);
+			config.rescaleAbundance = (boolean) parameters.getParameterForName("Rescale abundance").getValue();
 
 
 			BAMReader reader = new BAMReader(maxIntronLength, bamFile, maxCov, sample, stranded,minQuality,maxLen, maxGap, longReads, collapse, absCap, 1_000_000, restrictRefs);

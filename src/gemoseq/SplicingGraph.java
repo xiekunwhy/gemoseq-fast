@@ -1181,7 +1181,7 @@ public class SplicingGraph {
 		
 		for(int j=idxs.length-1;j>=i;j--) {
 			Transcript temp = original.get((int)idxs[j]);
-			temp.setAbundance(aPrioriTranscripts[j]*nReads);
+			temp.setAbundance(aPrioriTranscripts[j]*nReads*scale);
 			temp.setStrand( getStrand( aPrioriTranscriptsOriginalOrder, readsTimesTranscripts, readWeights, (int)idxs[j], relTranscriptLen, intronWeights, cdsWeights ) );
 			result.add(temp);
 		}
