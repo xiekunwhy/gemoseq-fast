@@ -77,7 +77,10 @@ mates + strand": **N fragments with identical structure are stored once with wei
 - **a prominent warning is printed when the index is older (mtime) than the BAM** — a stale
   index silently drops data;
 - with no index at all, falls back to streaming the full BAM and filtering by reference name
-  (correct but slower, with a notice).
+  (correct but slower, with a notice);
+- `ReadStats` (the insert/intron-length statistics used for splice-graph pruning) is also
+  reference-aware: in restricted runs it reads only the requested references via indexed
+  queries, so a restricted run matches a split-BAM run in both speed and output.
 
 ### 2.5 New parameters
 
@@ -109,7 +112,7 @@ itself down-samples randomly with a fixed seed, so any two implementations fluct
 |---|---|---|---|
 | original, Chr01-only BAM (625 MB) | 11.5 GB | 143 s | 6765 transcripts |
 | **this fork**, same input | **8.0 GB** | **101 s** | 6710 transcripts |
-| this fork, whole-genome BAM (4.8 GB) + `r=Chr01` | 7.5 GB | 205 s | 6713, indexed query |
+| this fork, whole-genome BAM (4.8 GB) + `r=Chr01` | 7.5 GB | 108 s | 6710, coordinate-identical to the split-BAM run |
 | this fork, whole-genome BAM + `rl=ptg.list o=ptg` | 0.55 GB | 234 s | small-contig list mode |
 | this fork, whole-genome BAM, full run + `o=cca` | 11.4 GB | 635 s | 48219 transcripts |
 
@@ -168,6 +171,8 @@ non-downsampled loci, intron-chain agreement ≥ 99% at downsampled loci.
    useful as a control.
 5. Stale-index detection is based on file mtime; no content-level validation is performed
    (the warning advises re-indexing).
+6. In restricted runs (`r`/`rl`), `ReadStats` is computed from the restricted references only,
+   so the output matches a split-BAM run exactly; whole-BAM statistics would differ slightly.
 
 ## 8. Repository layout
 
