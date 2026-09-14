@@ -103,8 +103,11 @@ All original parameters are unchanged and fully compatible.
 | low (30×/3000×, 1.04M reads) | 18 s / 5.3 GB | 17 s / **2.4 GB** | **coordinates 100% identical** |
 | hi (2000×/100,000×, 37.6M reads) | 157 s / 8.8 GB | **76 s / 4.3 GB** | 97% coordinate overlap* |
 
-\* all differences are in the hotspot where both versions apply random down-sampling (the original
-itself down-samples randomly with a fixed seed, so any two implementations fluctuate there).
+\* "coordinate overlap" is a strict metric: an mRNA counts as matching only if its
+(chromosome, start, end, strand) tuple is exactly identical on both sides — partial overlaps do
+not count. All differences are in the hotspot where both versions apply random down-sampling
+(the original itself down-samples randomly with a fixed seed, so any two implementations
+fluctuate there).
 
 ### 3.2 Real data (plant genome, 1.1 Gb, 15 references; FR_SECOND_STRAND, threads=6)
 
