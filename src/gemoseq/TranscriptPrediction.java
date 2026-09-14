@@ -379,11 +379,18 @@ public class TranscriptPrediction implements JstacsTool {
 		}
 		
 		private void compute(int idx, Region region, OutputSet outset) throws CloneNotSupportedException {
-			
+
 			boolean filterBefore = true;
-			
+
 			LinkedList<TranscriptResult> topList = new LinkedList<TranscriptResult>();
-			
+
+			if(region.getRegionStart() == null || region.getRegionEnd() == null) {
+				// region without reads (can occur after coverage-based splitting);
+				// nothing to compute (upstream issue #75)
+				outset.add(idx, topList);
+				return;
+			}
+
 			double rpk = region.getTheoreticalNumberOfReads()/(double)(region.getRegionEnd()-region.getRegionStart()+1)*1000.0;
 
 			ReadGraph rg2 = region.buildGraph(config.minIntronLength, config.maxGapFilled, config.maxMM, config.longReads);
@@ -770,7 +777,7 @@ public class TranscriptPrediction implements JstacsTool {
 			String geneBase = (String) parameters.getParameterForName("Gene prefix").getValue();
 			boolean useChrPrefix = (boolean) parameters.getParameterForName("Gene names with chromosome").getValue();
 
-			ReadStats stats = new ReadStats(minIntronLength, 1.0, bamFile);
+			ReadStats stats = restrictRefs == null ? new ReadStats(minIntronLength, 1.0, bamFile) : new ReadStats(minIntronLength, 1.0, restrictRefs, bamFile);
 
 
 			Config config = new Config(minIntronLength, maxIntronLength, stranded, minReads, minFraction, minIntronReads, minIntronFraction,

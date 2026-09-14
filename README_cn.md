@@ -50,6 +50,10 @@ BAM 上内存随深度×区域长度失控，本分叉把内存与时间做到**
 ### 2.3 算法/数据结构修补
 
 - `nextSplit()` 重写为单次 BFS + 按组分实际跨度分配数组（消灭 O(组分数²) 与重复分配）；
+- **修复覆盖度切分产生空子区域导致的崩溃**（[上游 issue #75](https://github.com/Jstacs/Jstacs/issues/75)）：
+  完全落在长 intron 内部的子区间收不到任何"完全包含"的 read（所有 read 都跨切分边界），
+  产生的空子区域会让 worker 抛 `NullPointerException`；现在空子区域直接丢弃，计算路径
+  也加了空区域保护；
 - `Node.addOutgoing` 由"containsKey+get+put"三次哈希改为单次 get；
 - **基因组 `.fai` 懒加载**：用到哪条染色体才从 fasta 读哪条（有 `.fai` 时），省掉整个基因组的
   常驻内存；

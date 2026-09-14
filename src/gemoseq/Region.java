@@ -300,6 +300,26 @@ public class Region {
 			}
 		}
 
+		// drop sub-regions that received no reads (e.g. intervals fully inside a long
+		// intron, where every read spans the split boundaries); returning them would
+		// crash downstream with a NullPointerException (upstream issue #75)
+		int nNonEmpty = 0;
+		for(Region reg : regions) {
+			if(reg.getRegionStart() != null) {
+				nNonEmpty++;
+			}
+		}
+		if(nNonEmpty < regions.length) {
+			Region[] nonEmpty = new Region[nNonEmpty];
+			int j = 0;
+			for(Region reg : regions) {
+				if(reg.getRegionStart() != null) {
+					nonEmpty[j++] = reg;
+				}
+			}
+			return nonEmpty;
+		}
+
 		return regions;
 	}
 

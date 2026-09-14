@@ -62,6 +62,11 @@ mates + strand": **N fragments with identical structure are stored once with wei
 
 - `nextSplit()` rewritten as a single BFS with arrays sized to the component's actual span
   (eliminates the O(#components²) behavior and repeated allocations);
+- **fixed the empty-subregion crash** in coverage-based region splitting
+  ([upstream issue #75](https://github.com/Jstacs/Jstacs/issues/75)): intervals fully inside a
+  long intron receive no reads (every read spans the split boundaries), producing empty
+  sub-regions that crashed the worker with a `NullPointerException`; empty sub-regions are now
+  dropped and the compute path guards against them;
 - `Node.addOutgoing` now uses a single hash lookup instead of containsKey+get+put;
 - **lazy genome loading via `.fai`**: chromosomes are read from the fasta only when first needed,
   eliminating the whole-genome resident memory footprint;
