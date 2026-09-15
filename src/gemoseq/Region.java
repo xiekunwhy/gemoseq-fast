@@ -340,12 +340,18 @@ public class Region {
 
 
 	public void addRead(SAMRecord read) {
+		Mate mate = ReadGroup.convert(read, longReads);
+		char st = computeStrand(stranded, read);
+		addRead(read, mate, st);
+	}
+
+	public void addRead(SAMRecord read, Mate mate, char st) {
 		synchronized(this) {
-			addReadInternal(read);
+			addReadInternal(read, mate, st);
 		}
 	}
 
-	private void addReadInternal(SAMRecord read) {
+	private void addReadInternal(SAMRecord read, Mate mate, char st) {
 		if(sampleProb != 1.0 && r.nextDouble() >= sampleProb) {
 			nOut++;
 			return;
@@ -366,9 +372,6 @@ public class Region {
 		}
 		lastRefIdx = read.getReferenceIndex();
 		totalRecords++;
-
-		Mate mate = ReadGroup.convert(read, longReads);
-		char st = computeStrand(read);
 
 		if("dummy".equals(read.getReadName())) {
 			if(dummyGroup == null) {
@@ -521,7 +524,7 @@ public class Region {
 		return removed;
 	}
 
-	private char computeStrand(SAMRecord sr) {
+	static char computeStrand(Stranded stranded, SAMRecord sr) {
 		char strand = '.';
 		if(stranded == Stranded.FR_FIRST_STRAND) {
 			strand = '-';

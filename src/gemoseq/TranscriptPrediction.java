@@ -143,6 +143,27 @@ public class TranscriptPrediction implements JstacsTool {
 		private double delta;
 		private int nIterations;
 		private ReadStats stats;
+		private volatile java.util.concurrent.CountDownLatch statsLatch;
+		private volatile ReadStats[] statsBox;
+		private volatile Throwable[] statsErr;
+
+		private ReadStats getStats() {
+			if(stats == null) {
+				if(statsLatch != null) {
+					try {
+						statsLatch.await();
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						throw new RuntimeException(e);
+					}
+					if(statsErr[0] != null) {
+						throw new RuntimeException("ReadStats computation failed: "+statsErr[0], statsErr[0]);
+					}
+					stats = statsBox[0];
+				}
+			}
+			return stats;
+		}
 		private int minProteinLength;
 		private double spilloverFactor;
 		private int maxGapFilled;
@@ -406,7 +427,7 @@ public class TranscriptPrediction implements JstacsTool {
 			rg2.pruneByRelativeNumberOfReads(config.minIntronFraction,true);
 			
 			
-			rg2.pruneBySplitLength(config.stats);
+			rg2.pruneBySplitLength(config.getStats());
 			
 			if(config.longReads) {
 				rg2.pruneAlternativeIntronsLong(5);
@@ -780,12 +801,31 @@ public class TranscriptPrediction implements JstacsTool {
 			String geneBase = (String) parameters.getParameterForName("Gene prefix").getValue();
 			boolean useChrPrefix = (boolean) parameters.getParameterForName("Gene names with chromosome").getValue();
 
-			ReadStats stats = restrictRefs == null ? new ReadStats(minIntronLength, 1.0, bamFile) : new ReadStats(minIntronLength, 1.0, restrictRefs, bamFile);
+			final java.util.concurrent.CountDownLatch statsLatch = new java.util.concurrent.CountDownLatch(1);
+			final ReadStats[] statsBox = new ReadStats[1];
+			final Throwable[] statsErr = new Throwable[1];
+			final String bamFileF = bamFile;
+			final int minIntronLengthF = minIntronLength;
+			final String[] restrictRefsF = restrictRefs;
+			Thread statsThread = new Thread(() -> {
+				try {
+					statsBox[0] = restrictRefsF == null ? new ReadStats(minIntronLengthF, 1.0, bamFileF) : new ReadStats(minIntronLengthF, 1.0, restrictRefsF, bamFileF);
+				} catch (Throwable t) {
+					statsErr[0] = t;
+				} finally {
+					statsLatch.countDown();
+				}
+			}, "gemoseq-readstats");
+			statsThread.setDaemon(true);
+			statsThread.start();
 
 
 			Config config = new Config(minIntronLength, maxIntronLength, stranded, minReads, minFraction, minIntronReads, minIntronFraction,
 					maxNumTranscripts, percentExplained, minReadsPerTranscript, minReadsPerGene, maxFraction, percentAbundance, scaleIntronReads,
-					delta, nIterations,stats,minProteinLength,maxGap,longReads,geneBase, useChrPrefix);
+					delta, nIterations,null,minProteinLength,maxGap,longReads,geneBase, useChrPrefix);
+			config.statsLatch = statsLatch;
+			config.statsBox = statsBox;
+			config.statsErr = statsErr;
 			config.rescaleAbundance = (boolean) parameters.getParameterForName("Rescale abundance").getValue();
 
 

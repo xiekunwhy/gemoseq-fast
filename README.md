@@ -72,7 +72,13 @@ mates + strand": **N fragments with identical structure are stored once with wei
   eliminating the whole-genome resident memory footprint;
 - **fixed a multi-threading race**: in stranded mode, forward/reverse Regions were read and
   written concurrently by different workers, causing `ConcurrentModificationException`
-  (latent in the original as well); key Region state access is now synchronized.
+  (latent in the original as well); key Region state access is now synchronized;
+- **I/O pipeline**: `ReadStats` is computed in the background, and BAM ingestion runs as a
+  producer/consumer pipeline (async BGZF decode + parallel per-record conversion with bounded
+  in-flight backpressure, record order preserved and therefore deterministic). Beyond this,
+  the remaining serial path is region building itself, so the practical sweet spot is
+  threads 8–12; for large genomes, running one process per chromosome (`r=`/`rl=`) scales
+  much better than adding more threads to one process.
 
 ### 2.4 htsjdk upgrade + index handling
 

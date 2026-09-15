@@ -1,6 +1,7 @@
 package projects.gemoseq;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
 
@@ -20,7 +21,7 @@ public class BAMReader implements Iterator<Region>{
 	
 	private Iterator<SAMRecord> recIt;
 	private SamReader reader;
-	private SAMRecord curr;
+	private Cvt currCvt;
 	private int maxIntronLength;
 	private double maxcov;
 	private double sample;
@@ -95,6 +96,174 @@ public class BAMReader implements Iterator<Region>{
 		this.absCap = absCap;
 		this.pendingCap = pendingCap;
 
+		startPipeline(recIt);
+	}
+
+	// ------------------------------------------------------------------
+	// asynchronous decode + parallel conversion pipeline:
+	//   producer thread (BGZF inflate/decode) -> raw batches ->
+	//   N converter threads (cigar/block/mismatch/strand analysis) ->
+	//   ordered completion map -> consumer (region building, serial order).
+	// Sampling decisions stay on the consumer in record order, so results
+	// remain deterministic.
+	// ------------------------------------------------------------------
+
+	private static final int BATCH_SIZE = 256;
+	private static final int N_CONVERTERS = 4;
+	private static final int MAX_INFLIGHT = 64;
+	private volatile Throwable converterFatal = null;
+
+	private static class Batch {
+		long seq;
+		SAMRecord[] recs;
+		ReadGroup.Mate[] mates;
+		char[] strands;
+		Throwable err;
+	}
+
+	private final java.util.concurrent.ArrayBlockingQueue<Batch> rawQ = new java.util.concurrent.ArrayBlockingQueue<Batch>(64);
+	private final java.util.TreeMap<Long, Batch> done = new java.util.TreeMap<Long, Batch>();
+	private final Batch POISON = new Batch();
+	private long nextSeq = 0;
+
+	private Batch curBatch = null;
+	private int curIdx = 0;
+	private boolean streamDone = false;
+
+	private void startPipeline(Iterator<SAMRecord> recIt) {
+		Thread prod = new Thread(() -> {
+			long seq = 0;
+			try {
+				while(recIt.hasNext()) {
+					Batch b = new Batch();
+					b.seq = seq++;
+					ArrayList<SAMRecord> li = new ArrayList<SAMRecord>(BATCH_SIZE);
+					for(int i=0;i<BATCH_SIZE && recIt.hasNext();i++) {
+						li.add(recIt.next());
+					}
+					b.recs = li.toArray(new SAMRecord[0]);
+					rawQ.put(b);
+				}
+			} catch (Throwable t) {
+				Batch b = new Batch();
+				b.seq = seq++;
+				b.err = t;
+				try { rawQ.put(b); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+			} finally {
+				try {
+					Batch b = new Batch();
+					b.seq = seq;
+					b.recs = new SAMRecord[0];
+					rawQ.put(b);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+				}
+			}
+		}, "gemoseq-bam-producer");
+		prod.setDaemon(true);
+		prod.start();
+
+		for(int k=0;k<N_CONVERTERS;k++) {
+			Thread conv = new Thread(() -> {
+				try {
+					while(true) {
+						Batch b = rawQ.take();
+						if(b.recs != null) {
+							b.mates = new ReadGroup.Mate[b.recs.length];
+							b.strands = new char[b.recs.length];
+							for(int i=0;i<b.recs.length;i++) {
+								try {
+									b.mates[i] = ReadGroup.convert(b.recs[i], longReads);
+									b.strands[i] = Region.computeStrand(stranded, b.recs[i]);
+								} catch (Throwable t) {
+									if(b.err == null) {
+										b.err = t;
+									}
+								}
+							}
+						}
+						synchronized(done) {
+							while(b.seq - nextSeq >= MAX_INFLIGHT) {
+								try {
+									done.wait(1000);
+								} catch (InterruptedException ie) {
+									Thread.currentThread().interrupt();
+									return;
+								}
+							}
+							done.put(b.seq, b);
+							done.notifyAll();
+						}
+					}
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				} catch (Throwable t) {
+					converterFatal = t;
+					synchronized(done) {
+						done.notifyAll();
+					}
+				}
+			}, "gemoseq-bam-convert-"+k);
+			conv.setDaemon(true);
+			conv.start();
+		}
+	}
+
+	private Batch takeBatch() {
+		synchronized(done) {
+			while(!done.containsKey(nextSeq)) {
+				if(converterFatal != null) {
+					throw new RuntimeException("converter thread died: "+converterFatal, converterFatal);
+				}
+				try {
+					done.wait(1000);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					throw new RuntimeException(e);
+				}
+			}
+			Batch b = done.remove(nextSeq);
+			nextSeq++;
+			done.notifyAll();
+			return b;
+		}
+	}
+
+	private boolean hasNextRec() {
+		while(curBatch == null || curIdx >= curBatch.recs.length) {
+			if(streamDone) {
+				return false;
+			}
+			Batch b = takeBatch();
+			if(b.err != null) {
+				throw new RuntimeException("error while reading/converting BAM records: "+b.err, b.err);
+			}
+			if(b.recs.length == 0) {
+				streamDone = true;
+				return false;
+			}
+			curBatch = b;
+			curIdx = 0;
+		}
+		return true;
+	}
+
+	private static class Cvt {
+		SAMRecord rec;
+		ReadGroup.Mate mate;
+		char strand;
+	}
+
+	private Cvt nextCvt() {
+		if(!hasNextRec()) {
+			return null;
+		}
+		Cvt c = new Cvt();
+		c.rec = curBatch.recs[curIdx];
+		c.mate = curBatch.mates[curIdx];
+		c.strand = curBatch.strands[curIdx];
+		curIdx++;
+		return c;
 	}
 
 	/** opens the BAM with an explicitly located index file (.bai or .csi, both naming conventions). */
@@ -165,68 +334,70 @@ public class BAMReader implements Iterator<Region>{
 
 	@Override
 	public boolean hasNext() {
-		return recIt.hasNext() || revRegion != null;
+		return hasNextRec() || revRegion != null;
 	}
 
 	@Override
 	public Region next() {
-		
+
 		if(revRegion != null) {
 			Region temp = revRegion;
 			revRegion = null;
 			return temp;
 		}
-		
+
 		Region region = new Region(maxcov,sample, stranded==Stranded.FR_UNSTRANDED ? '.' : '+', stranded, longReads, collapse, absCap, pendingCap);
 		Region revTemp = new Region(maxcov,sample, stranded==Stranded.FR_UNSTRANDED ? '.' : '-', stranded, longReads, collapse, absCap, pendingCap);
-		
-		if(curr != null) {
-			add(region,revTemp,curr);
+
+		if(currCvt != null) {
+			add(region,revTemp,currCvt);
+			currCvt = null;
 		}
-		
-		while(recIt.hasNext()) {
-			curr = recIt.next();
-			if(curr.getReadLength() + maxIntronLength < curr.getAlignmentEnd()-curr.getAlignmentStart()) {
-				curr = null;
+
+		while(hasNextRec()) {
+			Cvt c = nextCvt();
+			SAMRecord rec = c.rec;
+			if(rec.getReadLength() + maxIntronLength < rec.getAlignmentEnd()-rec.getAlignmentStart()) {
 				continue;
 			}
-			if(curr.getMappingQuality() < minQuality) {
-				curr = null;
+			if(rec.getMappingQuality() < minQuality) {
 				continue;
 			}
-			if( 
-					(region.getReferenceIndex() != null && !curr.getReferenceIndex().equals(region.getReferenceIndex() ) ) ||
-					(revTemp.getReferenceIndex() != null && !curr.getReferenceIndex().equals(revTemp.getReferenceIndex() ) ) 
+			if(
+					(region.getReferenceIndex() != null && !rec.getReferenceIndex().equals(region.getReferenceIndex() ) ) ||
+					(revTemp.getReferenceIndex() != null && !rec.getReferenceIndex().equals(revTemp.getReferenceIndex() ) )
 				) {
+				currCvt = c;
 				return join(region,revTemp);
 			}
 			int maxEnd = Math.max(region.getRegionEnd() == null ? -1 : region.getRegionEnd(), revTemp.getRegionEnd() == null ? -1 : revTemp.getRegionEnd());
 			if(
-					maxEnd > -1 && maxEnd < curr.getAlignmentStart()
+					maxEnd > -1 && maxEnd < rec.getAlignmentStart()
 				) {
-				
+
 				boolean filled = false;
 				if(maxEnd - Math.min(region.getRegionStart() == null ? maxEnd : region.getRegionStart(), revTemp.getRegionStart() == null ? maxEnd : revTemp.getRegionStart()) < maxRegionLength) {
-					
-					if(isFwd(curr) && region.getRegionEnd() != null && region.getRegionEnd()+maxGapFilled>= curr.getAlignmentStart()) {
-						SAMRecord[] dummies = getDummyPair(curr, region.getRegionEnd()-1, curr.getAlignmentStart()+1);
+
+					if(isFwd(rec) && region.getRegionEnd() != null && region.getRegionEnd()+maxGapFilled>= rec.getAlignmentStart()) {
+						SAMRecord[] dummies = getDummyPair(rec, region.getRegionEnd()-1, rec.getAlignmentStart()+1);
 						add(region,revTemp,dummies[0]);
 						add(region,revTemp,dummies[1]);
 						filled = true;
 					}
-					if(!isFwd(curr) && revTemp.getRegionEnd() != null && revTemp.getRegionEnd()+maxGapFilled>= curr.getAlignmentStart()) {
-						SAMRecord[] dummies = getDummyPair(curr, revTemp.getRegionEnd()-1, curr.getAlignmentStart()+1);
+					if(!isFwd(rec) && revTemp.getRegionEnd() != null && revTemp.getRegionEnd()+maxGapFilled>= rec.getAlignmentStart()) {
+						SAMRecord[] dummies = getDummyPair(rec, revTemp.getRegionEnd()-1, rec.getAlignmentStart()+1);
 						add(region,revTemp,dummies[0]);
 						add(region,revTemp,dummies[1]);
 						filled = true;
 					}
-					
+
 				}
 				if(!filled) {
+					currCvt = c;
 					return join(region,revTemp);
 				}
 			}
-			add(region,revTemp,curr);
+			add(region,revTemp,c);
 		}
 		return join(region,revTemp);
 	}
@@ -450,6 +621,14 @@ public class BAMReader implements Iterator<Region>{
 		}
 	}
 	
+
+	private void add(Region region, Region revTemp, Cvt c) {
+		if(isFwd(c.rec)) {
+			region.addRead(c.rec, c.mate, c.strand);
+		}else {
+			revTemp.addRead(c.rec, c.mate, c.strand);
+		}
+	}
 
 	private void add(Region region, Region revTemp, SAMRecord sr) {
 		if(isFwd(sr)) {
