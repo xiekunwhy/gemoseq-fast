@@ -174,15 +174,13 @@ public class ReadGraph {
 	
 	
 	private void remove(Collection<Edge> toRemove) {
-		Iterator<Edge> removeIt = toRemove.iterator();
-		while(removeIt.hasNext()) {
-			Edge e = removeIt.next();
-			int start = e.relStart;
-			int end = e.relEnd;
-			nodes[start].removeOutgoing(end);
-			nodes[end].removeIncoming(start);
+		// 'edges' is a LinkedList: Collection.removeAll on it is O(n*m); do a single pass instead
+		HashSet<Edge> set = new HashSet<Edge>(toRemove);
+		for(Edge e : toRemove) {
+			nodes[e.relStart].removeOutgoing(e.relEnd);
+			nodes[e.relEnd].removeIncoming(e.relStart);
 		}
-		edges.removeAll(toRemove);
+		edges.removeIf(set::contains);
 	}
 	
 	public void pruneByAbsoluteNumberOfReads(double minNum, boolean onlyIntrons) {
@@ -773,8 +771,7 @@ public class ReadGraph {
 		private int nDummy;
 		
 		public Node() {
-			this.outgoing = new HashMap<Integer, ReadGraph.Edge>();
-			this.incoming = new HashMap<Integer, ReadGraph.Edge>();
+			// maps are created lazily on first edge to keep per-base memory low
 			this.nReads = 0;
 			this.nDummy = 0;
 			this.nOut = 0;
@@ -790,20 +787,23 @@ public class ReadGraph {
 		}
 
 		public void removeOutgoing(int relEnd) {
-			if(outgoing.remove(relEnd) != null) {
+			if(outgoing != null && outgoing.remove(relEnd) != null) {
 				nOut--;
 			}
-			
+
 		}
 		
 		public void removeIncoming(int relStart) {
-			if(incoming.remove(relStart) != null) {
+			if(incoming != null && incoming.remove(relStart) != null) {
 				nIn--;
 			}
 		}
 		
 		public Edge addOutgoing(int relStart, int relEnd, LinkedList<Edge> list, Node[] nodes) {
 
+			if(outgoing == null) {
+				outgoing = new HashMap<Integer, ReadGraph.Edge>();
+			}
 			Edge e = outgoing.get(relEnd);
 			if(e != null) {
 				return e;
@@ -811,6 +811,9 @@ public class ReadGraph {
 			Edge newEdge = new Edge(relStart,relEnd);
 			this.outgoing.put(relEnd,newEdge);
 			nOut++;
+			if(nodes[relEnd].incoming == null) {
+				nodes[relEnd].incoming = new HashMap<Integer, ReadGraph.Edge>();
+			}
 			nodes[relEnd].incoming.put(relStart, newEdge);
 			nodes[relEnd].nIn++;
 			list.add(newEdge);
@@ -826,11 +829,11 @@ public class ReadGraph {
 		}
 
 		public Collection<Edge> getOutgoingEdges() {
-			return outgoing.values();
+			return outgoing == null ? java.util.Collections.<Edge>emptyList() : outgoing.values();
 		}
-		
+
 		public Collection<Edge> getIncomingEdges() {
-			return incoming.values();
+			return incoming == null ? java.util.Collections.<Edge>emptyList() : incoming.values();
 		}
 		
 		

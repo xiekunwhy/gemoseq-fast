@@ -59,6 +59,7 @@ BAM 上内存随深度×区域长度失控，本分叉把内存与时间做到**
   常驻内存；
 - **修复多线程竞态**：链特异性模式下正反链 Region 被不同 worker 并发读写导致
   `ConcurrentModificationException`（原版同样潜伏此问题）；对 Region 的关键状态访问加了同步；
+- **稀疏 EM 定量**：EM 循环按每条 read 的稀疏相容候选列表迭代，替代稠密 reads×transcripts 矩阵（结果不变，每次迭代 O(Σ相容数)）；`ReadGraph.remove` 规避 `LinkedList.removeAll` 的 O(n×m)；`Node` 边表懒创建（降低每碱基内存）；未比对 read 安全跳过。
 - **I/O 流水线**：`ReadStats` 统计改为后台线程计算；BAM 摄取改为生产者/消费者流水线
   （异步 BGZF 解码 + 多条目并行转换，带背压上限，记录顺序保持、结果确定）。至此单进程内
   剩余的串行段是区域构建本身，实测 threads 8-12 是甜点；大基因组更好的并行姿势是

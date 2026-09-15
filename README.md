@@ -73,6 +73,7 @@ mates + strand": **N fragments with identical structure are stored once with wei
 - **fixed a multi-threading race**: in stranded mode, forward/reverse Regions were read and
   written concurrently by different workers, causing `ConcurrentModificationException`
   (latent in the original as well); key Region state access is now synchronized;
+- **sparse EM quantification**: the EM loop iterates per-read sparse compatible-candidate lists instead of the dense reads×transcripts matrix (same result, O(Σ compat) per iteration); `ReadGraph.remove` avoids `LinkedList.removeAll` O(n×m); `Node` edge maps are created lazily (less per-base memory); unmapped reads are skipped safely.
 - **I/O pipeline**: `ReadStats` is computed in the background, and BAM ingestion runs as a
   producer/consumer pipeline (async BGZF decode + parallel per-record conversion with bounded
   in-flight backpressure, record order preserved and therefore deterministic). Beyond this,

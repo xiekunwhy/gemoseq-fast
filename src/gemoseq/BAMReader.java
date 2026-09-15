@@ -365,6 +365,10 @@ public class BAMReader implements Iterator<Region>{
 		while(hasNextRec()) {
 			Cvt c = nextCvt();
 			SAMRecord rec = c.rec;
+			if(rec.getReferenceIndex() == null) {
+				// unmapped record (no reference); nothing to assign it to
+				continue;
+			}
 			if(rec.getReadLength() + maxIntronLength < rec.getAlignmentEnd()-rec.getAlignmentStart()) {
 				continue;
 			}

@@ -1108,17 +1108,45 @@ public class SplicingGraph {
 		
 		double nReads = 0.0;
 		double[] aPrioriTranscripts = new double[original.size()];
-		double[][] gamma = new double[readsTimesTranscripts.length][original.size()];
-		for(i=0;i<gamma.length;i++) {
-			boolean found = false;
-			for(int j=0;j<gamma[i].length;j++) {
+
+		// The number of transcript candidates compatible with a read is typically very
+		// small compared with the total number of candidates. The EM loop therefore uses
+		// sparse lists of the compatible candidates instead of the dense matrix; entries
+		// not listed are and stay 0, so results are unchanged, but every iteration costs
+		// O(sum of #compatible candidates) instead of O(#reads * #candidates).
+		int[][] compat = new int[readsTimesTranscripts.length][];
+		for(i=0;i<compat.length;i++) {
+			int cnt = 0;
+			for(int j=0;j<readsTimesTranscripts[i].length;j++) {
 				if(readsTimesTranscripts[i][j]) {
-					gamma[i][j] = 1.0/relTranscriptLen[j]*intronWeights[j]*cdsWeights[j];
-					found = true;
+					cnt++;
 				}
 			}
-			if(found) {
-				Normalisation.sumNormalisation(gamma[i]);
+			int[] c = new int[cnt];
+			int k = 0;
+			for(int j=0;j<readsTimesTranscripts[i].length;j++) {
+				if(readsTimesTranscripts[i][j]) {
+					c[k++] = j;
+				}
+			}
+			compat[i] = c;
+		}
+
+		double[][] gamma = new double[compat.length][];
+		for(i=0;i<gamma.length;i++) {
+			int[] c = compat[i];
+			gamma[i] = new double[c.length];
+			if(c.length>0) {
+				double sum = 0;
+				for(int k=0;k<c.length;k++) {
+					int j = c[k];
+					double v = 1.0/relTranscriptLen[j]*intronWeights[j]*cdsWeights[j];
+					gamma[i][k] = v;
+					sum += v;
+				}
+				for(int k=0;k<c.length;k++) {
+					gamma[i][k] /= sum;
+				}
 				nReads += readWeights[i];
 			}
 		}
@@ -1128,11 +1156,11 @@ public class SplicingGraph {
 		double oldD = Double.NEGATIVE_INFINITY;
 		i=0;
 		while(true) {
-			
-			aPriori(aPrioriTranscripts,gamma, readWeights);
-			
-			double d = gamma(gamma,aPrioriTranscripts,readsTimesTranscripts, readWeights,relTranscriptLen, intronWeights, cdsWeights);
-		
+
+			aPriori(aPrioriTranscripts,gamma, readWeights, compat);
+
+			double d = gamma(gamma,aPrioriTranscripts,compat, readWeights,relTranscriptLen, intronWeights, cdsWeights);
+
 			double diff = d - oldD;
 			if(diff < delta || i>nIterations) {
 				break;
@@ -1418,12 +1446,27 @@ public class SplicingGraph {
 	}
 	
 
-	private static final double gamma(double[][] gamma, double[] aPrioriTranscripts, boolean[][] readsTimesTranscripts, double[] readWeights, double[] relTranscriptLen, double[] intronWeights, double[] cdsWeights) {
+	private static final double gamma(double[][] gamma, double[] aPrioriTranscripts, int[][] compat, double[] readWeights, double[] relTranscriptLen, double[] intronWeights, double[] cdsWeights) {
 		double d = 0.0;
 		for(int i=0;i<gamma.length;i++) {
-			
-			d += gamma(gamma[i],aPrioriTranscripts,readsTimesTranscripts[i], readWeights[i], relTranscriptLen, intronWeights, cdsWeights);
-			
+			int[] c = compat[i];
+			if(c.length == 0) {
+				continue;
+			}
+			double[] g = gamma[i];
+			double sum = 0;
+			for(int k=0;k<c.length;k++) {
+				int j = c[k];
+				double v = aPrioriTranscripts[j] / relTranscriptLen[j] * intronWeights[j] * cdsWeights[j];
+				g[k] = v;
+				sum += v;
+			}
+			if(sum > 0) {
+				for(int k=0;k<c.length;k++) {
+					g[k] /= sum;
+				}
+			}
+			d += readWeights[i]*Math.log( sum );
 		}
 		return d;
 	}
@@ -1449,11 +1492,14 @@ public class SplicingGraph {
 		return sum;
 	}
 
-	private static final void aPriori(double[] aPrioriTranscripts, double[][] gamma, double[] readWeights) {
+	private static final void aPriori(double[] aPrioriTranscripts, double[][] gamma, double[] readWeights, int[][] compat) {
 		Arrays.fill(aPrioriTranscripts, 0.0);
 		for(int i=0;i<gamma.length;i++) {
-			for(int j=0;j<gamma[i].length;j++) {
-				aPrioriTranscripts[j] += gamma[i][j]*readWeights[i];
+			int[] c = compat[i];
+			double w = readWeights[i];
+			double[] g = gamma[i];
+			for(int k=0;k<c.length;k++) {
+				aPrioriTranscripts[c[k]] += g[k]*w;
 			}
 		}
 		sumNormalisation(aPrioriTranscripts);
