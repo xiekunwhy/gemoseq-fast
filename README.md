@@ -93,6 +93,16 @@ mates + strand": **N fragments with identical structure are stored once with wei
   reference-aware: in restricted runs it reads only the requested references via indexed
   queries, so a restricted run matches a split-BAM run in both speed and output.
 
+### 2.6 Patched htsjdk CSIIndex (critical for >512 Mb chromosomes)
+
+The bundled `htsjdk/samtools/CSIIndex.class` is patched (`src/htsjdk/samtools/CSIIndex.java`).
+Upstream htsjdk 2.24 computes a `minimumOffset` for whole-reference CSI queries by walking up
+the bin hierarchy; on depth-6 CSIs written by samtools (htslib 1.20+, where records beyond
+512 Mb are placed in level-1 bins), the walk anchored on those tail-holding level-1 bins and
+`Chunk.optimizeChunkList` silently **discarded all chunks before ~1.07-1.61 Gb** — restricted
+runs (`r`/`rl`) returned only the chromosome tail. The patch skips the walk when
+`startPos <= 0` (whole-reference queries), restoring full coverage.
+
 ### 2.5 New parameters
 
 | Parameter | short name | description | default |

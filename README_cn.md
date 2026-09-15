@@ -74,6 +74,15 @@ BAM 上内存随深度×区域长度失控，本分叉把内存与时间做到**
   只通过索引查询统计目标参考序列，因此受限运行在速度和输出上都与拆分后的单染色体 BAM
   完全一致。
 
+### 2.6 打过补丁的 htsjdk CSIIndex（>512Mb 染色体的关键修复）
+
+jar 内的 `htsjdk/samtools/CSIIndex.class` 为打过补丁的版本（源码见 `src/htsjdk/samtools/CSIIndex.java`）。
+上游 htsjdk 2.24 在全参考序列 CSI 查询时会沿 bin 层级向上走查计算 `minimumOffset`；
+对于 samtools（htslib 1.20+）写出的 depth-6 csi（>512Mb 的记录被放进 level-1 大 bin），
+走查会锚定到装着染色体尾部的 level-1 bin 上，`Chunk.optimizeChunkList` 随即将
+**~1.07-1.61G 之前的全部 chunks 静默丢弃**——受限运行（`r`/`rl`）只剩下染色体尾部。
+本补丁在 `startPos <= 0`（全参考查询）时跳过该走查，恢复完整覆盖。
+
 ### 2.5 新增参数
 
 | 参数 | 短名 | 说明 | 默认 |
