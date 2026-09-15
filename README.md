@@ -146,8 +146,8 @@ New/changed:
 
 `readstats` tool parameters: `m=<bam>` (required), `o=<output>` (default
 readstats.stats), `Shortest intron length` (same as gemoseq's `sil`), `rl=<list>`
-(optional restriction). The result file follows CLI convention:
-`Read_Statistics.txt` inside outdir.
+(optional restriction). **Output is written as `<outdir>/<o>` and the protocol as
+`<outdir>/<o>.protocol`** (same prefix semantics as gemoseq).
 
 ## 4. Performance and correctness
 
@@ -248,8 +248,8 @@ agreement ≥ 99% at downsampled loci.
 7. A tiny contig run alone with very few spliced reads can get a degenerate (zero)
    intron-length variance and over-prune junctions — pool contigs via `rl=` or use
    `rs=` with global statistics.
-8. The `readstats` result file follows CLI convention: `Read_Statistics.txt` inside
-   outdir.
+8. `readstats` writes its output and protocol as `<outdir>/<o>` and
+   `<outdir>/<o>.protocol`.
 
 ## 9. Repository layout
 

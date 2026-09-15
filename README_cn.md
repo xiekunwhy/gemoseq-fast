@@ -113,7 +113,7 @@ jar 内并立 **`readstats`** 工具（与 gemoseq/predictCDS/GAF/Analyzer/merge
 
 `readstats` 工具参数：`m=<bam>`（必需）、`o=<输出文件>`（默认 readstats.stats）、
 `Shortest intron length`（同 gemoseq 的 sil）、`rl=<列表>`（可选限定范围）。
-输出文件按 CLI 惯例落为 outdir 下的 `Read_Statistics.txt`。
+**输出命名为 `<outdir>/<o>`，protocol 为 `<outdir>/<o>.protocol`**（与 gemoseq 的前缀语义一致）。
 
 ## 4. 性能与正确性
 
@@ -198,7 +198,7 @@ python3 build/repack_jar.py --base GeMoSeq-1.2.3.jar --htsjdk htsjdk-2.24.1.jar 
    或要求跨染色体一致时），用 `readstats` 先算全基因组统计、再以 `rs=` 喂给各次运行。
 7. 小 contig 单独运行时若可剪接 read 极少，intron 长度方差可能退化为 0 导致过度剪枝——
    用 `rl=` 打包或 `rs=` 全局统计规避。
-8. `readstats` 的结果文件按 CLI 惯例命名为 outdir 下的 `Read_Statistics.txt`。
+8. `readstats` 的输出与 protocol 按 `o=` 命名为 `<outdir>/<o>` 与 `<outdir>/<o>.protocol`。
 
 ## 9. 目录结构
 
