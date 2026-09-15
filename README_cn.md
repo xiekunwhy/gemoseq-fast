@@ -92,6 +92,18 @@ jar 内的 `htsjdk/samtools/CSIIndex.class` 为打过补丁的版本（源码见
 | Reference list | `rl` | 文件里每行一个参考序列名，只处理这些并输出到一个 GFF（需索引） | 关 |
 | Stream full BAM | `sfb` | 限定参考序列时不走索引，改为流式扫描全 BAM 按参考名过滤（慢但免疫索引问题） | false |
 | Output prefix | `o` | 输出命名为 `<前缀>.Transcript_Predictions.gff3` 与 `<前缀>.protocol_gemorna.txt`（在 outdir 下，默认当前目录）；中间临时文件也用 `<前缀>.predictions.tmp` | 关 |
+| Read statistics | `rs` | 预计算的 read 统计文件（由 `readstats` 工具生成）；给定后 GeMoSeq 跳过自身统计，直接用该文件做剪接图剪枝 | 关 |
+
+jar 里同时并立了一个 **`readstats`** 工具（与 `gemoseq` 同级）：
+
+```bash
+# 全基因组统计一次（输出 Read_Statistics.txt 到 outdir）
+java -jar GeMoSeq-1.2.3-fast.jar readstats m=merged.bam o=genome.stats
+
+# 之后每条染色体复用（统计步骤被跳过）
+java -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam r=Chr01 o=Chr01 rs=genome.stats threads=6
+```
+
 | Collapse identical fragments | `c` | 片段折叠开关（对照用） | true |
 | Maximum reads per region | `mrpr` | 区域 reads 绝对上限 | 4,000,000 |
 | Rescale abundance | `ra` | 将转录本丰度（score 属性）按 1/降采样概率还原，使降采样区域的丰度近似原始 reads 数（TPM 类定量需要） | false |

@@ -112,6 +112,18 @@ runs (`r`/`rl`) returned only the chromosome tail. The patch skips the walk when
 | Reference list | `rl` | file with one reference name per line; process only those, combined into one GFF (requires an index) | off |
 | Stream full BAM | `sfb` | when restricting references, stream the whole BAM and filter by reference name instead of using the index (slower but immune to index problems) | false |
 | Output prefix | `o` | outputs are named `<prefix>.Transcript_Predictions.gff3` and `<prefix>.protocol_gemorna.txt` (inside outdir, default: current directory); the intermediate predictions file is also prefixed (`<prefix>.predictions.tmp`) | off |
+| Read statistics | `rs` | text file with precomputed read statistics (from the `readstats` tool); when given, GeMoSeq skips its own statistics pass and uses these values for splice-graph pruning | off |
+
+The jar also bundles a **`readstats`** tool (peer of `gemoseq`):
+
+```bash
+# compute once over the whole BAM (writes Read_Statistics.txt into outdir)
+java -jar GeMoSeq-1.2.3-fast.jar readstats m=merged.bam o=genome.stats
+
+# reuse it in every restricted run (statistics pass skipped)
+java -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam r=Chr01 o=Chr01 rs=genome.stats threads=6
+```
+
 | Collapse identical fragments | `c` | fragment collapsing on/off (for A/B comparison) | true |
 | Maximum reads per region | `mrpr` | absolute cap of reads kept per region | 4,000,000 |
 | Rescale abundance | `ra` | rescale transcript abundance (score attribute) by 1/down-sampling probability, so abundances in down-sampled regions approximate original read counts (use for TPM-style quantification) | false |

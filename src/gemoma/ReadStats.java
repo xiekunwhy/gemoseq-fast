@@ -154,6 +154,66 @@ public class ReadStats {
 		return meanReadLen;
 	}
 
+	private ReadStats(double meanSplit, double sdSplit, double meanReadLen, double factor) {
+		this.meanSplit = meanSplit;
+		this.sdSplit = sdSplit;
+		this.meanReadLen = meanReadLen;
+		this.factor = factor;
+	}
+
+	/** writes the statistics to a simple text file (see fromFile for the format). */
+	public void toFile(String path) throws java.io.IOException {
+		toFile(path, null);
+	}
+
+	public void toFile(String path, String source) throws java.io.IOException {
+		java.io.PrintWriter w = new java.io.PrintWriter(new java.io.FileWriter(path));
+		w.println("#ReadStats v1" + (source != null ? "\t" + source : ""));
+		w.println("meanSplit\t" + meanSplit);
+		w.println("sdSplit\t" + sdSplit);
+		w.println("meanReadLen\t" + meanReadLen);
+		w.println("factor\t" + factor);
+		w.close();
+	}
+
+	/** reads statistics previously written with toFile; throws on malformed content. */
+	public static ReadStats fromFile(String path) throws java.io.IOException {
+		java.io.BufferedReader rd = new java.io.BufferedReader(new java.io.FileReader(path));
+		Double meanSplit = null, sdSplit = null, meanReadLen = null;
+		double factor = 1.0;
+		String line;
+		while( (line = rd.readLine()) != null ) {
+			line = line.trim();
+			if(line.isEmpty() || line.startsWith("#")) {
+				continue;
+			}
+			String[] p = line.split("\\s+", 2);
+			if(p.length != 2) {
+				continue;
+			}
+			String k = p[0], v = p[1].trim();
+			try {
+				if(k.equals("meanSplit")) {
+					meanSplit = Double.parseDouble(v);
+				}else if(k.equals("sdSplit")) {
+					sdSplit = Double.parseDouble(v);
+				}else if(k.equals("meanReadLen")) {
+					meanReadLen = Double.parseDouble(v);
+				}else if(k.equals("factor")) {
+					factor = Double.parseDouble(v);
+				}
+			} catch(NumberFormatException e) {
+				rd.close();
+				throw new java.io.IOException("malformed value in ReadStats file "+path+": "+line);
+			}
+		}
+		rd.close();
+		if(meanSplit == null || sdSplit == null) {
+			throw new java.io.IOException("ReadStats file "+path+" lacks meanSplit/sdSplit entries");
+		}
+		return new ReadStats(meanSplit, sdSplit, meanReadLen == null ? 0.0 : meanReadLen, factor);
+	}
+
 	public boolean isOK(int len, int num) {
 		double min = factor*(len - getMeanSplitLength())/getSdSplitLength();
 

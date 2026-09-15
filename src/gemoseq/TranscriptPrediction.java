@@ -644,7 +644,7 @@ public class TranscriptPrediction implements JstacsTool {
 			}
 		}
 
-		CLI cli = new CLI(new boolean[] {true,false,false,false,false},new TranscriptPrediction(), new PredictCDSFromGFF(), new GeMoMaAnnotationFilter(), new Analyzer(), new MergeGeMoMaGeMoSeq());
+		CLI cli = new CLI(new boolean[] {true,false,false,false,false,false},new TranscriptPrediction(), new PredictCDSFromGFF(), new GeMoMaAnnotationFilter(), new Analyzer(), new MergeGeMoMaGeMoSeq(), new ReadStatsTool());
 
 		outdirForTemp = new File(outdir);
 		cli.run(args);
@@ -710,6 +710,7 @@ public class TranscriptPrediction implements JstacsTool {
 			pars.add(new SimpleParameter(DataType.STRING,"Restrict to reference","Only process alignments on this reference (chromosome/scaffold/contig); requires sorted BAM with index",false));
 			pars.add(new FileParameter("Reference list","Text file with one reference name per line; only these references are processed and combined into one output (requires sorted BAM with index); mutually exclusive with 'Restrict to reference'","txt,list,tsv,csv,bed",false));
 			pars.add(new SimpleParameter(DataType.BOOLEAN,"Stream full BAM","When restricting references, stream the whole BAM and filter by reference name instead of using the index; slower but immune to index problems",true,false));
+			pars.add(new FileParameter("Read statistics","Text file with precomputed read statistics (from the readstats tool); when given, GeMoSeq skips its own statistics pass and uses these values for splice-graph pruning","stats,txt",false));
 			pars.add(new SimpleParameter(DataType.STRING,"Output prefix","Write outputs as <prefix>.Transcript_Predictions.gff3 and <prefix>.protocol_gemorna.txt in the output directory (outdir, default: current directory); the intermediate predictions file also carries the prefix",false));
 
 			pars.add(new SimpleParameter(DataType.BOOLEAN,"Rescale abundance","Rescale transcript abundance (score attribute) by 1/down-sampling probability so that abundances in down-sampled regions approximate original read counts; needed for TPM-style quantification",true,false));
@@ -813,17 +814,26 @@ public class TranscriptPrediction implements JstacsTool {
 			final int minIntronLengthF = minIntronLength;
 			final String[] restrictRefsF = restrictRefs;
 			final boolean forceStreamF = (boolean) parameters.getParameterForName("Stream full BAM").getValue();
-			Thread statsThread = new Thread(() -> {
-				try {
-					statsBox[0] = restrictRefsF == null ? new ReadStats(minIntronLengthF, 1.0, bamFileF) : new ReadStats(minIntronLengthF, 1.0, restrictRefsF, forceStreamF, bamFileF);
-				} catch (Throwable t) {
-					statsErr[0] = t;
-				} finally {
-					statsLatch.countDown();
-				}
-			}, "gemoseq-readstats");
-			statsThread.setDaemon(true);
-			statsThread.start();
+			Object statsFileVal = parameters.getParameterForName("Read statistics").getValue();
+			if(statsFileVal != null) {
+				// precomputed statistics from the readstats tool: skip the statistics pass entirely
+				String statsFile = ((FileParameter)parameters.getParameterForName("Read statistics")).getFileContents().getFilename();
+				protocol.append("Using precomputed read statistics from "+statsFile+"\n");
+				statsBox[0] = ReadStats.fromFile(statsFile);
+				statsLatch.countDown();
+			}else {
+				Thread statsThread = new Thread(() -> {
+					try {
+						statsBox[0] = restrictRefsF == null ? new ReadStats(minIntronLengthF, 1.0, bamFileF) : new ReadStats(minIntronLengthF, 1.0, restrictRefsF, forceStreamF, bamFileF);
+					} catch (Throwable t) {
+						statsErr[0] = t;
+					} finally {
+						statsLatch.countDown();
+					}
+				}, "gemoseq-readstats");
+				statsThread.setDaemon(true);
+				statsThread.start();
+			}
 
 
 			Config config = new Config(minIntronLength, maxIntronLength, stranded, minReads, minFraction, minIntronReads, minIntronFraction,
