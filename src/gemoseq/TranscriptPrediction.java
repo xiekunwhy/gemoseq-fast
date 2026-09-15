@@ -33,6 +33,9 @@ import projects.gemoseq.SplicingGraph.Transcript;
 import projects.gemoma.ReadStats;
 
 public class TranscriptPrediction implements JstacsTool {
+
+	/** set from main() so that the intermediate predictions file lands in outdir. */
+	private static File outdirForTemp = null;
 	
 	
 	private static class TranscriptResult{
@@ -643,6 +646,7 @@ public class TranscriptPrediction implements JstacsTool {
 
 		CLI cli = new CLI(new boolean[] {true,false,false,false,false},new TranscriptPrediction(), new PredictCDSFromGFF(), new GeMoMaAnnotationFilter(), new Analyzer(), new MergeGeMoMaGeMoSeq());
 
+		outdirForTemp = new File(outdir);
 		cli.run(args);
 
 		if(isGemoseq && outprefix != null) {
@@ -843,7 +847,11 @@ public class TranscriptPrediction implements JstacsTool {
 
 			File out;
 			if(outprefix != null && !outprefix.trim().isEmpty()) {
-				out = new File(outprefix.trim() + ".predictions.tmp");
+				File dir = outdirForTemp != null ? outdirForTemp : new File(".");
+				if(!dir.isDirectory()) {
+					dir.mkdirs();
+				}
+				out = new File(dir, outprefix.trim() + ".predictions.tmp");
 				out.deleteOnExit();
 			}else {
 				out = File.createTempFile("predictions", ".temp", new File("."));
