@@ -709,6 +709,7 @@ public class TranscriptPrediction implements JstacsTool {
 
 			pars.add(new SimpleParameter(DataType.STRING,"Restrict to reference","Only process alignments on this reference (chromosome/scaffold/contig); requires sorted BAM with index",false));
 			pars.add(new FileParameter("Reference list","Text file with one reference name per line; only these references are processed and combined into one output (requires sorted BAM with index); mutually exclusive with 'Restrict to reference'","txt,list,tsv,csv,bed",false));
+			pars.add(new SimpleParameter(DataType.BOOLEAN,"Stream full BAM","When restricting references, stream the whole BAM and filter by reference name instead of using the index; slower but immune to index problems",true,false));
 			pars.add(new SimpleParameter(DataType.STRING,"Output prefix","Write outputs as <prefix>.Transcript_Predictions.gff3 and <prefix>.protocol_gemorna.txt in the output directory (outdir, default: current directory); the intermediate predictions file also carries the prefix",false));
 
 			pars.add(new SimpleParameter(DataType.BOOLEAN,"Rescale abundance","Rescale transcript abundance (score attribute) by 1/down-sampling probability so that abundances in down-sampled regions approximate original read counts; needed for TPM-style quantification",true,false));
@@ -811,9 +812,10 @@ public class TranscriptPrediction implements JstacsTool {
 			final String bamFileF = bamFile;
 			final int minIntronLengthF = minIntronLength;
 			final String[] restrictRefsF = restrictRefs;
+			final boolean forceStreamF = (boolean) parameters.getParameterForName("Stream full BAM").getValue();
 			Thread statsThread = new Thread(() -> {
 				try {
-					statsBox[0] = restrictRefsF == null ? new ReadStats(minIntronLengthF, 1.0, bamFileF) : new ReadStats(minIntronLengthF, 1.0, restrictRefsF, bamFileF);
+					statsBox[0] = restrictRefsF == null ? new ReadStats(minIntronLengthF, 1.0, bamFileF) : new ReadStats(minIntronLengthF, 1.0, restrictRefsF, forceStreamF, bamFileF);
 				} catch (Throwable t) {
 					statsErr[0] = t;
 				} finally {
@@ -842,7 +844,8 @@ public class TranscriptPrediction implements JstacsTool {
 			// NOTE: Genome.init must precede BAMReader construction: the async ingest
 			// pipeline starts converting records (which reads Genome.genome for the
 			// mismatch check) as soon as the BAMReader exists.
-			BAMReader reader = new BAMReader(maxIntronLength, bamFile, maxCov, sample, stranded,minQuality,maxLen, maxGap, longReads, collapse, absCap, 1_000_000, restrictRefs);
+			BAMReader reader = new BAMReader(maxIntronLength, bamFile, maxCov, sample, stranded,minQuality,maxLen, maxGap, longReads, collapse, absCap, 1_000_000, restrictRefs,
+					(boolean) parameters.getParameterForName("Stream full BAM").getValue());
 
 
 			File out;

@@ -80,6 +80,7 @@ BAM 上内存随深度×区域长度失控，本分叉把内存与时间做到**
 |---|---|---|---|
 | Restrict to reference | `r` | 只处理 BAM 中该条参考序列（需索引） | 关 |
 | Reference list | `rl` | 文件里每行一个参考序列名，只处理这些并输出到一个 GFF（需索引） | 关 |
+| Stream full BAM | `sfb` | 限定参考序列时不走索引，改为流式扫描全 BAM 按参考名过滤（慢但免疫索引问题） | false |
 | Output prefix | `o` | 输出命名为 `<前缀>.Transcript_Predictions.gff3` 与 `<前缀>.protocol_gemorna.txt`（在 outdir 下，默认当前目录）；中间临时文件也用 `<前缀>.predictions.tmp` | 关 |
 | Collapse identical fragments | `c` | 片段折叠开关（对照用） | true |
 | Maximum reads per region | `mrpr` | 区域 reads 绝对上限 | 4,000,000 |

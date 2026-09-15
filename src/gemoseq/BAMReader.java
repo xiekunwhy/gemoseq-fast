@@ -48,6 +48,10 @@ public class BAMReader implements Iterator<Region>{
 	}
 
 	public BAMReader(int maxIntronLength, String bam, double maxcov, double sample, Stranded stranded, int minQuality, int maxRegionLength, int maxGapFilled, boolean longReads, boolean collapse, long absCap, int pendingCap, String[] restrictRefs) {
+		this(maxIntronLength, bam, maxcov, sample, stranded, minQuality, maxRegionLength, maxGapFilled, longReads, collapse, absCap, pendingCap, restrictRefs, false);
+	}
+
+	public BAMReader(int maxIntronLength, String bam, double maxcov, double sample, Stranded stranded, int minQuality, int maxRegionLength, int maxGapFilled, boolean longReads, boolean collapse, long absCap, int pendingCap, String[] restrictRefs, boolean forceStream) {
 
 		SamReaderFactory srf = SamReaderFactory.makeDefault();
 		srf.validationStringency( ValidationStringency.SILENT );
@@ -66,10 +70,14 @@ public class BAMReader implements Iterator<Region>{
 			}
 			ok.sort((a,b) -> Integer.compare(dict.getSequenceIndex(a), dict.getSequenceIndex(b)));
 			this.restrictRefs = ok.toArray(new String[0]);
-			if(reader.hasIndex()) {
+			if(reader.hasIndex() && !forceStream) {
 				this.recIt = new RefIterator();
 			}else {
-				System.out.println("WARNING: no .bai index found for "+bam+" (a .csi index is not supported by this htsjdk version); falling back to streaming the full BAM and filtering by reference. Convert with 'samtools index -b' for fast random access.");
+				if(!reader.hasIndex()) {
+					System.out.println("WARNING: no .bai index found for "+bam+" (a .csi index is not supported by this htsjdk version); falling back to streaming the full BAM and filtering by reference. Convert with 'samtools index -b' for fast random access.");
+				}else {
+					System.out.println("Streaming the full BAM and filtering by reference (index access disabled by parameter).");
+				}
 				this.recIt = new FilterIterator();
 			}
 		}else {

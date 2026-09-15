@@ -22,16 +22,20 @@ public class ReadStats {
 	private double factor;
 
 	public ReadStats(int minIntronLength, double factor, String... bams) {
-		this(minIntronLength, factor, null, bams);
+		this(minIntronLength, factor, null, false, bams);
 	}
 
 	/**
 	 * Computes read statistics, optionally restricted to a set of references.
 	 * With restrictRefs != null, records are fetched by indexed queries per reference
 	 * (fast when a valid .bai/.csi index exists) or by streaming the full BAM and
-	 * filtering (fallback when no index is present).
+	 * filtering (fallback when no index is present, or when forceStream is true).
 	 */
 	public ReadStats(int minIntronLength, double factor, String[] restrictRefs, String... bams) {
+		this(minIntronLength, factor, restrictRefs, false, bams);
+	}
+
+	public ReadStats(int minIntronLength, double factor, String[] restrictRefs, boolean forceStream, String... bams) {
 		this.factor = factor;
 		SamReaderFactory srf = SamReaderFactory.makeDefault();
 		srf.validationStringency( ValidationStringency.SILENT );
@@ -57,7 +61,7 @@ public class ReadStats {
 				}
 				final ArrayList<String> sorted = new ArrayList<String>(refs);
 				sorted.sort((a,b) -> Integer.compare(dict.getSequenceIndex(a), dict.getSequenceIndex(b)));
-				if(reader.hasIndex()) {
+				if(reader.hasIndex() && !forceStream) {
 					for(String ref : sorted) {
 						Iterator<SAMRecord> recIt = reader.query(ref, 0, 0, false);
 						while(recIt.hasNext()) {
@@ -65,7 +69,6 @@ public class ReadStats {
 						}
 					}
 				}else {
-					System.out.println("WARNING: no index found for "+bams[i]+"; computing read statistics by streaming the full BAM and filtering by reference.");
 					HashSet<String> keep = new HashSet<String>(sorted);
 					Iterator<SAMRecord> recIt = reader.iterator();
 					while(recIt.hasNext()) {

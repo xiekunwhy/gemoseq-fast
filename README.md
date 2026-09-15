@@ -99,6 +99,7 @@ mates + strand": **N fragments with identical structure are stored once with wei
 |---|---|---|---|
 | Restrict to reference | `r` | process only this reference (chromosome/scaffold/contig) from the BAM (requires an index) | off |
 | Reference list | `rl` | file with one reference name per line; process only those, combined into one GFF (requires an index) | off |
+| Stream full BAM | `sfb` | when restricting references, stream the whole BAM and filter by reference name instead of using the index (slower but immune to index problems) | false |
 | Output prefix | `o` | outputs are named `<prefix>.Transcript_Predictions.gff3` and `<prefix>.protocol_gemorna.txt` (inside outdir, default: current directory); the intermediate predictions file is also prefixed (`<prefix>.predictions.tmp`) | off |
 | Collapse identical fragments | `c` | fragment collapsing on/off (for A/B comparison) | true |
 | Maximum reads per region | `mrpr` | absolute cap of reads kept per region | 4,000,000 |
