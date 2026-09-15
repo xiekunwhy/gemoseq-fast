@@ -2,212 +2,218 @@
 
 > [English](README.md) | 中文
 
-[GeMoSeq](https://www.jstacs.de/index.php/GeMoSeq)（[Jstacs/Jstacs](https://github.com/Jstacs/Jstacs) 的 `projects/gemoseq`，曾用名 GeMoRNA）的高深度优化分叉。
+[GeMoSeq](https://www.jstacs.de/index.php/GeMoSeq)（[Jstacs/Jstacs](https://github.com/Jstacs/Jstacs) 的 `projects/gemoseq`，曾用名 GeMoRNA）的高深度优化分叉，
+面向**多样本合并 BAM 的转录本重建**（de novo 基因组注释的转录证据生产）。
 
-面向**多样本合并 BAM 的转录本重建**（de novo 基因组注释的转录证据生产）：原版在高深度合并
-BAM 上内存随深度×区域长度失控，本分叉把内存与时间做到**对深度基本不敏感**，并增加了
-按染色体/参考序列定向运行、输出前缀命名、CSI 索引支持等工程特性。
+原版在高深度合并 BAM 上内存随深度×区域长度失控、线程超 6 无收益；本分叉把内存与时间做到
+**对测序深度基本不敏感**，并补齐了大型基因组工程化所需的一整套能力：片段折叠、异步 I/O 流水线、
+稀疏 EM、按染色体/参考序列定向运行、CSI 索引支持（含 >512Mb 的关键修复）、输出前缀、
+丰度还原与 TPM 计算、可复用的全局 read 统计。
 
 - 上游版本：GeMoSeq 1.2.3（2025-11-11）
-- 本分叉版本号：`1.2.3-fast`
+- 本分叉版本：`1.2.3-fast`
 - 许可证：GPL v3（沿用上游，见 [LICENSE](LICENSE)）
 
 ---
 
 ## 1. 为什么改
 
-转录本注释流程中，把多个 RNA 样本的比对结果合并成一个大 BAM 再 call 转录本，基因完整度
-（BUSCO）明显优于"单样本 call 再合并 GTF"。但合并 BAM 的深度是各样本之和，原版 GeMoSeq 在
-这种输入上：
+注释流程中，多个 RNA 样本合并成一个大 BAM 再 call 转录本，基因完整度（BUSCO）明显优于
+"单样本 call 再合并 GTF"。但合并 BAM 深度是各样本之和，原版 GeMoSeq 在这种输入上：
 
-1. 每个基因组区域（region）把所有 reads 以 `SAMRecord` 对象链表存内存，上限是
-   `maxcov × 区域长度`——默认 100 × 750 kb = **7500 万条 read/区域**，高深度下直接爆内存；
+1. 每个基因组区域把全部 reads 以 `SAMRecord` 对象链表存内存，上限 `maxcov × 区域长度`
+   （默认 100 × 750 kb = 7500 万条/区域），尖峰深度（rRNA、叶绿体）完全绕开降采样；
 2. 构图、read 归属、EM 定量**三遍按 read 逐碱基处理**，时间随深度线性增长；
-3. `nextSplit()` 每切一个连通组分就分配一次全区长度的节点数组并重过滤边表
-   （O(组分数²)）；
-4. 平均深度不超过 100× 时降采样不触发——**尖峰深度（rRNA、叶绿体基因）完全绕开降采样**。
+3. BAM 摄取（解压+解码+区域构建）单线程，线程超 6 无收益，I/O 成瓶颈；
+4. 一些工程缺口：不支持 CSI 索引、不能按染色体定向、输出名不可控、降采样刷屏、
+   基因组全量入内存、若干崩溃（含上游 issue #75）。
 
-## 2. 核心修改
+## 2. 功能与修改总览
 
-### 2.1 片段结构折叠（ReadGroup）——对深度不敏感的关键
+### 2.1 片段结构折叠（ReadGroup）——对深度不敏感的核心
 
 摄取 read 时即转成紧凑表示（外显子块数组 + gap 类型 + 预算 mismatch 数），按
 "双端 mate 的完整比对结构 + 链方向"做签名折叠：**N 个结构完全相同的片段只存一份加权重 N**。
-
-- 构图：`nReads += 权重`（与原版逐条累加完全相等）；
-- 定量矩阵一行对应一个组，`readWeights` 初始化为组权重——与原版"逐 read 一行、再
-  makeUnique 合并求和"在数学上等价；
-- mate 配对按 read name 在区域内缓冲合并，保持"双端算一个观测"的原版语义；
-- `dummy` 填隙 read 维持原版"全区域共用一个索引"的行为。
+构图计数 `nReads += 权重`（与逐条累加完全相等）；定量矩阵一行对应一个组，初始权重=组权重，
+与原版"逐 read 一行再 makeUnique 合并"在数学上等价。mate 按 read name 在区域内缓冲合并，
+保持"双端算一个观测"的原版语义。
 
 ### 2.2 降采样与内存上限
 
-- 保留原版 `maxcov`（区域平均深度）降采样语义，新增**绝对上限** `mrpr`（默认 4,000,000
-  reads/区域），尖峰深度也会被压住；
-- 组级降采样（同权重片段整体取舍）；
+- 保留原版 `mrc`（区域平均深度，默认 100）降采样语义，新增**绝对上限** `mrpr`
+  （默认 4,000,000 reads/区域），尖峰深度也被压住；
+- 组级降采样（同权重片段整体取舍，保持期望）；
 - 删除原版每次降采样向 stdout 打印 `#N->M` 的刷屏行为。
 
-### 2.3 算法/数据结构修补
+### 2.3 异步 I/O 流水线与稀疏计算
 
-- `nextSplit()` 重写为单次 BFS + 按组分实际跨度分配数组（消灭 O(组分数²) 与重复分配）；
-- **修复覆盖度切分产生空子区域导致的崩溃**（[上游 issue #75](https://github.com/Jstacs/Jstacs/issues/75)）：
-  完全落在长 intron 内部的子区间收不到任何"完全包含"的 read（所有 read 都跨切分边界），
-  产生的空子区域会让 worker 抛 `NullPointerException`；现在空子区域直接丢弃，计算路径
-  也加了空区域保护；
-- `Node.addOutgoing` 由"containsKey+get+put"三次哈希改为单次 get；
-- **基因组 `.fai` 懒加载**：用到哪条染色体才从 fasta 读哪条（有 `.fai` 时），省掉整个基因组的
-  常驻内存；
-- **修复多线程竞态**：链特异性模式下正反链 Region 被不同 worker 并发读写导致
-  `ConcurrentModificationException`（原版同样潜伏此问题）；对 Region 的关键状态访问加了同步；
-- **稀疏 EM 定量**：EM 循环按每条 read 的稀疏相容候选列表迭代，替代稠密 reads×transcripts 矩阵（结果不变，每次迭代 O(Σ相容数)）；`ReadGraph.remove` 规避 `LinkedList.removeAll` 的 O(n×m)；`Node` 边表懒创建（降低每碱基内存）；未比对 read 安全跳过。
-- **I/O 流水线**：`ReadStats` 统计改为后台线程计算；BAM 摄取改为生产者/消费者流水线
-  （异步 BGZF 解码 + 多条目并行转换，带背压上限，记录顺序保持、结果确定）。至此单进程内
-  剩余的串行段是区域构建本身，实测 threads 8-12 是甜点；大基因组更好的并行姿势是
-  按染色体多进程（`r=`/`rl=`），远比单进程加线程划算。
+- **后台 ReadStats**：插入片段/intron 长度统计与主流程重叠计算；
+- **异步解码 + 并行转换**：生产者线程做 BGZF 解压/SAMRecord 解码，4 个转换线程并行做
+  cigar/block/mismatch/链向分析，按序号带背压交接（顺序不变、结果确定）；
+- **稀疏 EM 定量**：EM 循环按每条 read 的稀疏相容候选列表迭代，替代稠密
+  reads×transcripts 矩阵，每次迭代 O(Σ相容数)，结果不变；
+- `ReadGraph.remove` 规避 `LinkedList.removeAll` 的 O(n×m)（改 O(n+m)）；
+- `Node` 边表懒创建（每碱基内存 ~112B → ~50B）；
+- `nextSplit()` 重写为单次 BFS + 按组分实际跨度分配数组（消灭 O(组分数²)）；
+- **基因组 `.fai` 懒加载**：用到哪条染色体才从 fasta 读哪条；
+- 实测 threads 8-12 是甜点；更大的并行建议按染色体多进程。
 
-### 2.4 htsjdk 升级 + 索引处理
+### 2.4 并发与崩溃修复
+
+- 修复链特异性模式下正反链 Region 被不同 worker 并发读写导致的
+  `ConcurrentModificationException`（原版同样潜伏）；
+- **修复覆盖度切分产生空子区域导致的 NPE**（[上游 issue #75](https://github.com/Jstacs/Jstacs/issues/75)：
+  完全落在长 intron 内的子区间收不到"完全包含"的 read，worker 拆箱空指针；
+  空子区域直接丢弃 + 计算路径加保护）；
+- 未比对 read（无参考）安全跳过。
+
+### 2.5 htsjdk 升级、CSI 与索引处理
 
 - jar 内 htsjdk 由 2.5.0-SNAPSHOT（2016，不支持 CSI）升级为 **2.24.1**；
 - 索引自动探测：`*.bam.bai` / `*.bam.csi` / `*.bai` / `*.csi` 四种命名，`.bai` 优先；
-- **索引比 BAM 旧（mtime）时打印醒目警告**——过期索引会静默丢数据；
-- 完全没有索引时回退为流式扫描全 BAM 按参考名过滤（正确但慢，有提示）；
-- `ReadStats`（剪接图剪枝用的插入片段/intron 长度统计）同样支持参考序列限定：受限运行时
-  只通过索引查询统计目标参考序列，因此受限运行在速度和输出上都与拆分后的单染色体 BAM
-  完全一致。
+- **索引比 BAM 旧（mtime）时打印醒目警告**——过期索引会静默丢数据（实测旧索引
+  只能取回 47% 的 reads）；
+- 无索引时回退为流式扫描全 BAM 按参考名过滤（正确但慢，有提示）；
+- **打过补丁的 `CSIIndex.class`**（源码 `src/htsjdk/samtools/CSIIndex.java`）：上游
+  htsjdk 2.24 在全参考 CSI 查询时沿 bin 层级走查计算 `minimumOffset`，对 samtools
+  （htslib 1.20+）写出的 depth-6 csi（>512Mb 记录被放进 level-1 大 bin），走查会锚定
+  到装着染色体尾部的 level-1 bin，`Chunk.optimizeChunkList` 随即将 **~1.07-1.61G
+  之前的全部 chunks 静默丢弃**（受限运行只剩尾部）。本补丁在 `startPos <= 0` 时跳过
+  该走查，恢复完整覆盖。
 
-### 2.6 打过补丁的 htsjdk CSIIndex（>512Mb 染色体的关键修复）
+### 2.6 定向运行与输出
 
-jar 内的 `htsjdk/samtools/CSIIndex.class` 为打过补丁的版本（源码见 `src/htsjdk/samtools/CSIIndex.java`）。
-上游 htsjdk 2.24 在全参考序列 CSI 查询时会沿 bin 层级向上走查计算 `minimumOffset`；
-对于 samtools（htslib 1.20+）写出的 depth-6 csi（>512Mb 的记录被放进 level-1 大 bin），
-走查会锚定到装着染色体尾部的 level-1 bin 上，`Chunk.optimizeChunkList` 随即将
-**~1.07-1.61G 之前的全部 chunks 静默丢弃**——受限运行（`r`/`rl`）只剩下染色体尾部。
-本补丁在 `startPos <= 0`（全参考查询）时跳过该走查，恢复完整覆盖。
+- `r=<染色体>` / `rl=<列表文件>`：只处理指定参考序列（索引查询）；
+- `o=<前缀>`：输出 `<前缀>.Transcript_Predictions.gff3` 与 `<前缀>.protocol_gemorna.txt`
+  （在 outdir 下），中间临时文件也用 `<前缀>.predictions.tmp`；
+- `ra=true`：把降采样区域的丰度按 1/采样概率还原（TPM 类定量需要）。
 
-### 2.5 新增参数
+### 2.7 统计复用：readstats 工具与 `rs` 参数
+
+jar 内并立 **`readstats`** 工具（与 gemoseq/predictCDS/GAF/Analyzer/merge 同级）：
+对全基因组（或限定参考序列）计算 intron 长度分布统计（meanSplit/sdSplit/meanReadLen），
+写成文本文件。GeMoSeq 用 `rs=<文件>` 读入后**跳过自身统计步骤**，直接用该文件做剪接图剪枝。
+一次全局统计，处处复用——速度与口径统一兼得。
+
+## 3. 参数总表
+
+原版参数全部兼容（`g/m/s/l/sil/lr/mnor/mfor/mnoir/mfoir/p/mrpg/mrpt/pa/sf/mrl/mrc/mfgl/q/mpl/gp/gnwc`），
+新增/改变如下：
 
 | 参数 | 短名 | 说明 | 默认 |
 |---|---|---|---|
 | Restrict to reference | `r` | 只处理 BAM 中该条参考序列（需索引） | 关 |
-| Reference list | `rl` | 文件里每行一个参考序列名，只处理这些并输出到一个 GFF（需索引） | 关 |
-| Stream full BAM | `sfb` | 限定参考序列时不走索引，改为流式扫描全 BAM 按参考名过滤（慢但免疫索引问题） | false |
-| Output prefix | `o` | 输出命名为 `<前缀>.Transcript_Predictions.gff3` 与 `<前缀>.protocol_gemorna.txt`（在 outdir 下，默认当前目录）；中间临时文件也用 `<前缀>.predictions.tmp` | 关 |
-| Read statistics | `rs` | 预计算的 read 统计文件（由 `readstats` 工具生成）；给定后 GeMoSeq 跳过自身统计，直接用该文件做剪接图剪枝 | 关 |
-
-jar 里同时并立了一个 **`readstats`** 工具（与 `gemoseq` 同级）：
-
-```bash
-# 全基因组统计一次（输出 Read_Statistics.txt 到 outdir）
-java -jar GeMoSeq-1.2.3-fast.jar readstats m=merged.bam o=genome.stats
-
-# 之后每条染色体复用（统计步骤被跳过）
-java -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam r=Chr01 o=Chr01 rs=genome.stats threads=6
-```
-
+| Reference list | `rl` | 每行一个参考序列名的文件，只处理这些并输出到一个 GFF（需索引） | 关 |
+| Stream full BAM | `sfb` | 限定时不走索引，流式扫全 BAM 按名过滤（慢但免疫索引问题） | false |
+| Output prefix | `o` | 输出与中间文件加前缀 | 关 |
 | Collapse identical fragments | `c` | 片段折叠开关（对照用） | true |
 | Maximum reads per region | `mrpr` | 区域 reads 绝对上限 | 4,000,000 |
-| Rescale abundance | `ra` | 将转录本丰度（score 属性）按 1/降采样概率还原，使降采样区域的丰度近似原始 reads 数（TPM 类定量需要） | false |
+| Rescale abundance | `ra` | 丰度按 1/降采样概率还原（TPM 类定量用） | false |
+| Read statistics | `rs` | 预计算 read 统计文件（readstats 工具生成），给后跳过自身统计 | 关 |
 
-原版参数全部兼容不变。
+`readstats` 工具参数：`m=<bam>`（必需）、`o=<输出文件>`（默认 readstats.stats）、
+`Shortest intron length`（同 gemoseq 的 sil）、`rl=<列表>`（可选限定范围）。
+输出文件按 CLI 惯例落为 outdir 下的 `Read_Statistics.txt`。
 
-## 3. 性能与正确性
+## 4. 性能与正确性
 
-### 3.1 合成数据（2 Mb 基因组、330 基因、含 100 kb 热点区；bench/ 可复现）
+### 4.1 合成数据（2 Mb 基因组、330 基因、含 100 kb 热点区；bench/ 可复现）
 
 | 数据 | 原版 | 修改版 | 输出一致性 |
 |---|---|---|---|
 | low（30×/3000×，104 万 reads） | 18 s / 5.3 GB | 17 s / **2.4 GB** | **坐标 100% 一致** |
-| hi（2000×/100,000×，3760 万 reads） | 157 s / 8.8 GB | **76 s / 4.3 GB** | 坐标 97% 重合* |
+| hi（2000×/100,000×，3760 万 reads） | 157 s / 8.8 GB | **76 s / 4.3 GB** | 坐标 97.3% 精确一致* |
 
-\* "coordinate overlap" 是严格口径：一条 mRNA 的 (染色体, start, end, 链方向) 四元组两边完全
-相等才算一致，部分重叠不计入。差异全部位于双方都触发随机降采样的热点区（原版自身也是
-固定种子随机降采样，两次不同实现必然有涨落）。
+\* "精确一致"为严格口径：(染色体, start, end, 链向) 四元组完全相等才算，部分重叠不计。
+差异全部位于双方都触发随机降采样的热点区（原版自身也是固定种子随机降采样，
+两次不同实现必然有涨落）；内含子链口径 96.9-97.6%。
 
-### 3.2 真实数据（植物基因组，1.1 Gb、15 条参考序列；FR_SECOND_STRAND，threads=6）
+### 4.2 真实数据（植物基因组，1.1 Gb、15 条参考；FR_SECOND_STRAND，threads=6）
 
 | 运行 | 峰值内存 | 耗时 | 说明 |
 |---|---|---|---|
 | 原版，Chr01 单染色体 BAM（625 MB） | 11.5 GB | 143 s | 6765 转录本 |
-| **修改版**，同左 | **8.0 GB** | **101 s** | 6710 转录本 |
-| 修改版，全基因组 BAM（4.8 GB）+ `r=Chr01` | 7.5 GB | 108 s | 6710，与拆分 BAM 逐坐标一致 |
+| **修改版**，同左 | **8.0 GB** | **83-101 s** | 6710，内含子链与原版一致率 99.5% |
+| 修改版，全基因组 BAM（4.8 GB）+ `r=Chr01` | 7.5 GB | 108 s | 6710，与拆分 BAM **逐坐标一致** |
 | 修改版，全基因组 BAM + `rl=ptg.list o=ptg` | 0.55 GB | 234 s | 小 contig 列表模式 |
 | 修改版，全基因组 BAM 全量 + `o=cca` | 11.4 GB | 635 s | 48219 转录本 |
 
-同数据同参数下，修改版与原版 jar 的**内含子链一致率 99.5%**（差异集中在超高深度位点的
-末端外显子边界）。
+线程扩展：6→12 线程约再快 15-20%；**同一输入重复运行输出逐字节一致**（随机种子固定，
+且随机决策全部发生在主摄取线程）。
 
-## 4. 用法
+### 4.3 超 512Mb 染色体（depth-6 csi）
+
+本地以 htslib 1.22 规则构造的 600 Mb 染色体 + 手写 csi 验证：打补丁前查询只剩尾部
+（4960/9920），打补丁后 `query == stream`（9920=9920），受限运行头尾基因齐全。
+
+## 5. 典型用法
 
 ```bash
-# 全基因组
+# 0) 可选但推荐：先算一次全局统计（大 BAM 只扫一遍）
+java -jar GeMoSeq-1.2.3-fast.jar readstats m=merged.bam o=genome.stats
+
+# 1) 全基因组一次跑
 java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_SECOND_STRAND threads=6 o=cca
 
-# 只做 Chr01（索引查询）
-java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_SECOND_STRAND threads=6 r=Chr01 o=Chr01
+# 2) 大染色体逐条并行（推荐的多进程姿势；rs 复用全局统计）
+java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_SECOND_STRAND threads=6 r=Chr01 o=Chr01 rs=genome.stats
 
-# 只做一批小 contig（列表文件，一行一个名字，支持 # 注释与空行）
-java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_SECOND_STRAND threads=6 rl=small_contigs.list o=small
-```
+# 3) 一批小 contig 合并跑（共享统计，避免小样本退化）
+java -Xmx16g -jar GeMoSeq-1.2.3-fast.jar gemoseq g=genome.fa m=merged.bam s=FR_SECOND_STRAND threads=6 rl=small_contigs.list o=small rs=genome.stats
 
-内存还想再压：`mrpr=2000000 threads=4`。其他参数（`mrc`、`mnoir` 等）语义同原版，见
-`java -jar GeMoSeq-1.2.3-fast.jar gemoseq`。
-
-### TPM 计算
-
-`scripts/gemoseq_tpm.pl` 依据 GeMoSeq GFF3 输出（`score` 属性与外显子总长）计算 TPM 并
-追加到 mRNA 行。分染色体跑完后合并计算：
-
-```bash
+# 4) 分染色体结果合并后统一算 TPM
 cat chr*.Transcript_Predictions.gff3 | perl scripts/gemoseq_tpm.pl - > all.tpm.gff3
 ```
 
-降采样明显的热点区若想丰度无偏，跑 GeMoSeq 时请加 `ra=true`。
+内存还想再压：`mrpr=2000000 threads=4`。降采样明显的区域想要丰度无偏：`ra=true`。
 
-## 5. 从源码构建
+## 6. 从源码构建
 
 依赖：官方 GeMoSeq-1.2.3.jar（[jstacs.de](https://www.jstacs.de/index.php/GeMoSeq)）、
 htsjdk-2.24.1.jar（Maven Central）、JDK 11+、Python 3。
 
 ```bash
 # Windows 下 classpath 用分号；Linux 用冒号
-javac -encoding UTF-8 -cp GeMoSeq-1.2.3.jar;htsjdk-2.24.1.jar -d out-fast src/gemoseq/*.java
+javac -encoding UTF-8 -cp GeMoSeq-1.2.3.jar;htsjdk-2.24.1.jar -d out-fast src/gemoseq/*.java src/gemoma/*.java src/htsjdk/samtools/CSIIndex.java
 python3 build/repack_jar.py --base GeMoSeq-1.2.3.jar --htsjdk htsjdk-2.24.1.jar --classes out-fast --out GeMoSeq-1.2.3-fast.jar
 ```
 
-## 6. 验证方法
+## 7. 验证方法
 
-`bench/` 内含合成数据生成器与基准脚本：
+`bench/` 内含合成数据生成器与基准脚本（`GenTestData.java`、`bench.sh`、`bench2.ps1`、
+`ReproNPE.java` 等），可复现第 4 节全部数字。验收标准：非降采样位点坐标 100% 一致，
+降采样位点内含子链一致率 ≥ 99%。
 
-- `GenTestData.java`：生成带 GT-AG 剪接位点的合成基因组 + 可控深度剖面（含尖峰热点）的
-  排序索引 BAM；用于"原版 vs 修改版"的坐标级一致性 diff；
-- `bench.sh` / `bench2.ps1`：记录 wall time、峰值 RSS、退出码。
-
-复现实验见第 3 节。正确性验收标准：非降采样位点坐标 100% 一致，降采样位点内含子链
-一致率 ≥ 99%。
-
-## 7. 已知限制与语义差异（如实说明）
+## 8. 已知限制与语义差异（如实说明）
 
 1. **长读模式**（`lr=true`）已做适配但无充分测试；长读结构几乎不重复，折叠收益小。
 2. 降采样在组层面进行，与原版逐 read 抛硬币的分布略有差异——降采样区域的丰度值会有
-   百分之几的合理涨落。
+   百分之几的合理涨落（可用 `ra=true` 还原期望尺度）。
 3. 同名比对记录 >2 条（secondary/supplementary）时配对折叠与原版 idMap 语义略有出入；
    `q=40`（MAPQ 过滤）下这类记录很少。
 4. `c=false` 关闭折叠时输出与原版逐坐标一致（已验证），可用于对照。
 5. 索引过期检测基于文件 mtime，内容级校验不做（交给警告提示重建）。
-6. 受限运行（`r`/`rl`）时，`ReadStats` 只统计受限参考序列，因此输出与拆分 BAM 运行完全一致；
-   全 BAM 统计口径会略有不同。
+6. **ReadStats 统计口径**：默认受限运行（`r`/`rl`）只用受限参考序列做统计（因此与拆分
+   BAM 运行逐坐标一致；全基因组口径会略有不同）。如需全局统一判据（推荐用于小 contig
+   或要求跨染色体一致时），用 `readstats` 先算全基因组统计、再以 `rs=` 喂给各次运行。
+7. 小 contig 单独运行时若可剪接 read 极少，intron 长度方差可能退化为 0 导致过度剪枝——
+   用 `rl=` 打包或 `rs=` 全局统计规避。
+8. `readstats` 的结果文件按 CLI 惯例命名为 outdir 下的 `Read_Statistics.txt`。
 
-## 8. 目录结构
+## 9. 目录结构
 
 ```
-GeMoSeq-1.2.3-fast.jar   # 可直接运行的 fat jar
-src/gemoseq/             # 修改/新增的 7 个 Java 源文件（覆盖上游同名类）
+GeMoSeq-1.2.3-fast.jar   # 可直接运行的 fat jar（含 htsjdk 2.24.1 + CSIIndex 补丁）
+src/gemoseq/             # 修改/新增的 gemoseq 源文件（覆盖上游同名类）
+src/gemoma/ReadStats.java  # ReadStats（含 toFile/fromFile 与限定统计）
+src/htsjdk/samtools/CSIIndex.java  # 打过补丁的 htsjdk 类
+scripts/gemoseq_tpm.pl   # TPM 计算脚本
 build/repack_jar.py      # 重新打包脚本
 bench/                   # 合成数据生成器与基准脚本
 LICENSE                  # GPL v3（沿用 Jstacs）
 ```
 
-## 9. 致谢与引用
+## 10. 致谢与引用
 
 GeMoSeq 是 GeMoMa 的配套转录本重建工具，原作者 Jens Keilwagen 等，见
 [upstream](https://github.com/Jstacs/Jstacs)。本仓库仅做工程优化，不改变其核心算法设计；
