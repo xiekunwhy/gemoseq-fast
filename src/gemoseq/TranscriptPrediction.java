@@ -829,17 +829,16 @@ public class TranscriptPrediction implements JstacsTool {
 			config.rescaleAbundance = (boolean) parameters.getParameterForName("Rescale abundance").getValue();
 
 
-			BAMReader reader = new BAMReader(maxIntronLength, bamFile, maxCov, sample, stranded,minQuality,maxLen, maxGap, longReads, collapse, absCap, 1_000_000, restrictRefs);
-
-
-
-
-
 			if(restrictRefs == null) {
 				Genome.init(genome);
 			}else {
 				Genome.init(genome, new java.util.HashSet<String>(java.util.Arrays.asList(restrictRefs)));
 			}
+
+			// NOTE: Genome.init must precede BAMReader construction: the async ingest
+			// pipeline starts converting records (which reads Genome.genome for the
+			// mismatch check) as soon as the BAMReader exists.
+			BAMReader reader = new BAMReader(maxIntronLength, bamFile, maxCov, sample, stranded,minQuality,maxLen, maxGap, longReads, collapse, absCap, 1_000_000, restrictRefs);
 
 
 			File out;
