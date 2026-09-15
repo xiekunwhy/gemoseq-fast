@@ -35,7 +35,7 @@ import projects.gemoma.ReadStats;
 public class TranscriptPrediction implements JstacsTool {
 
 	/** set from main() so that the intermediate predictions file lands in outdir. */
-	private static File outdirForTemp = null;
+	static File outdirForTemp = null;
 	
 	
 	private static class TranscriptResult{
@@ -630,6 +630,7 @@ public class TranscriptPrediction implements JstacsTool {
 		String outprefix = null;
 		String outdir = ".";
 		boolean isGemoseq = args.length > 0 && "gemoseq".equalsIgnoreCase(args[0]);
+		boolean isReadstats = args.length > 0 && "readstats".equalsIgnoreCase(args[0]);
 		for(String a : args) {
 			int eq = a.indexOf('=');
 			if(eq > 0) {
@@ -658,6 +659,23 @@ public class TranscriptPrediction implements JstacsTool {
 			if(gff.isFile() && gff.renameTo(gffT)) {
 				System.out.println("Final predictions written to "+gffT.getPath());
 			}
+			if(prot.isFile() && prot.renameTo(protT)) {
+				System.out.println("Protocol written to "+protT.getPath());
+			}
+		}
+
+		if(isReadstats) {
+			File dir = new File(outdir);
+			String base = (outprefix != null) ? outprefix : "readstats.stats";
+			File target = new File(dir, base);
+			// the CLI saver copied the stats file as Read_Statistics.txt into outdir;
+			// the real output is already at <outdir>/<o> (written by the tool itself)
+			File dup = new File(dir, "Read_Statistics.txt");
+			if(dup.isFile() && target.isFile() && !dup.equals(target)) {
+				dup.delete();
+			}
+			File prot = new File(dir, "protocol_readstats.txt");
+			File protT = new File(dir, base + ".protocol");
 			if(prot.isFile() && prot.renameTo(protT)) {
 				System.out.println("Protocol written to "+protT.getPath());
 			}

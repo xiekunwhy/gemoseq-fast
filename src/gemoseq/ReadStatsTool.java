@@ -1,6 +1,7 @@
 package projects.gemoseq;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
 import java.util.Date;
 import java.util.LinkedList;
@@ -77,11 +78,19 @@ public class ReadStatsTool implements JstacsTool {
 
 		protocol.append("Computing read statistics from "+bamFile+(restrictRefs == null ? " (whole BAM)" : " ("+restrictRefs.length+" reference(s))")+"\n");
 		ReadStats stats = restrictRefs == null ? new ReadStats(minIntronLength, 1.0, bamFile) : new ReadStats(minIntronLength, 1.0, restrictRefs, bamFile);
-		stats.toFile(out, bamFile);
-		protocol.append("meanSplit="+stats.getMeanSplitLength()+" sdSplit="+stats.getSdSplitLength()+" meanReadLen="+stats.getMeanReadLength()+"\n");
-		protocol.append("Statistics written to "+out+"\n");
 
-		TextResult tr = new TextResult("Read Statistics", "Read statistics for GeMoSeq", new FileParameter.FileRepresentation(out), "txt", getToolName(), null, true);
+		// write directly to the final location: <outdir>/<o> (outdir defaults to ".")
+		File dir = TranscriptPrediction.outdirForTemp != null ? TranscriptPrediction.outdirForTemp : new File(".");
+		File target = new File(dir, out);
+		File parent = target.getParentFile();
+		if(parent != null && !parent.isDirectory()) {
+			parent.mkdirs();
+		}
+		stats.toFile(target.getPath(), bamFile);
+		protocol.append("meanSplit="+stats.getMeanSplitLength()+" sdSplit="+stats.getSdSplitLength()+" meanReadLen="+stats.getMeanReadLength()+"\n");
+		protocol.append("Statistics written to "+target.getPath()+"\n");
+
+		TextResult tr = new TextResult("Read Statistics", "Read statistics for GeMoSeq", new FileParameter.FileRepresentation(target.getAbsolutePath()), false, "txt", getToolName(), null, true);
 		return new ToolResult("Result of "+getToolName(), getToolName(), null, new ResultSet(tr), parameters, getToolName(), new Date(System.currentTimeMillis()) );
 	}
 
