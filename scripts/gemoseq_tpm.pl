@@ -22,7 +22,7 @@
 #   2) 分染色体单独跑 GeMoSeq 时，请使用相同的参数。
 #   3) 基因/转录本 ID 以 (染色体, ID) 联合键控，分染色体结果 cat 到一起时
 #      跨染色体的重复 ID（如 gnwc=false 时的 G1,G2,...）不会串。
-#   4) TPM 追加在 mRNA 行的属性列末尾（TPM=<值>），其余行原样输出。
+#   4) TPM 追加在 mRNA 行的属性列末尾（TPM=<值>;，与 GeMoSeq 属性结尾带分号的风格一致），其余行原样输出。
 #=============================================================================
 use strict;
 use warnings;
@@ -119,7 +119,7 @@ for my $f (@files) {
 			my ($id) = $F[8] =~ /ID=([^;]+)/;
 			if (defined $id && exists $tpm{$F[0]}{$id}) {
 				$F[8] =~ s/;?$//;
-				$F[8] .= ";TPM=" . sprintf("%.3f", $tpm{$F[0]}{$id});
+				$F[8] .= ";TPM=" . sprintf("%.3f", $tpm{$F[0]}{$id}) . ";";
 				$n_tagged++;
 			}
 			print $ofh join("\t", @F), "\n";
