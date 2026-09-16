@@ -118,7 +118,8 @@ original "a pair counts as one observation" semantics.
   `<prefix>.protocol_gemorna.txt` (inside outdir); the intermediate predictions file is
   also prefixed (`<prefix>.predictions.tmp`);
 - `ra=true`: rescales abundances in down-sampled regions by 1/sampling probability
-  (for TPM-style quantification).
+  (restores `score` to the original read-count scale; read the TPM note in §5 before
+  using it for quantification).
 
 ### 2.7 Statistics reuse: the `readstats` tool and the `rs` parameter
 
@@ -143,7 +144,7 @@ New/changed:
 | Output prefix | `o` | prefix output and intermediate files | off |
 | Collapse identical fragments | `c` | fragment collapsing on/off (for A/B comparison) | true |
 | Maximum reads per region | `mrpr` | absolute cap of reads kept per region | 4,000,000 |
-| Rescale abundance | `ra` | rescale abundance by 1/down-sampling probability (for TPM-style quantification) | false |
+| Rescale abundance | `ra` | rescale abundance by 1/down-sampling probability (restore original read-count scale) | false |
 | Read statistics | `rs` | precomputed read statistics file (from `readstats`); skips the internal statistics pass | off |
 
 `readstats` tool parameters: `m=<bam>` (required), `o=<output>` (default
@@ -208,6 +209,21 @@ cat chr*.Transcript_Predictions.gff3 | perl scripts/gemoseq_tpm.pl - > all.tpm.g
 
 To squeeze memory further: `mrpr=2000000 threads=4`. For unbiased abundances at heavily
 down-sampled loci: `ra=true`.
+
+### TPM computation (`scripts/gemoseq_tpm.pl`)
+
+Adds a `TPM=` attribute to every mRNA line; accepts multiple files or `-` (stdin),
+`-o <file>` for output.
+
+- **Default mode (`-f avgcov`, recommended)**: TPM is derived from the per-transcript
+  `avgCov` attribute (mean exon coverage, already length-normalized):
+  `TPM = avgCov / ΣavgCov × 1e6`. Same coverage-based notion as StringTie's TPM.
+- **Legacy mode (`-f score`)**: TPM from `score` per exon-kb. Only meaningful on output
+  produced with `ra=false`. **Do not use it on `ra=true` output**: hot-spot scores are
+  rescaled by up to 1/1e-6, so a handful of transcripts swallow almost all TPM mass and
+  everything else is flattened towards 0 (observed on real data: median TPM ≈ 0).
+  With `ra=true` data, always use the default avgCov mode (avgCov is built from the
+  splice-graph node counts and saturates at hotspots instead of exploding).
 
 ## 6. Building from source
 

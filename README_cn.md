@@ -88,7 +88,8 @@
 - `r=<染色体>` / `rl=<列表文件>`：只处理指定参考序列（索引查询）；
 - `o=<前缀>`：输出 `<前缀>.Transcript_Predictions.gff3` 与 `<前缀>.protocol_gemorna.txt`
   （在 outdir 下），中间临时文件也用 `<前缀>.predictions.tmp`；
-- `ra=true`：把降采样区域的丰度按 1/采样概率还原（TPM 类定量需要）。
+- `ra=true`：把降采样区域的丰度按 1/采样概率还原（score 回到原始 read 计数尺度；
+  用于定量前请先看 §5 的 TPM 说明）。
 
 ### 2.7 统计复用：readstats 工具与 `rs` 参数
 
@@ -110,7 +111,7 @@ jar 内并立 **`readstats`** 工具（与 gemoseq/predictCDS/GAF/Analyzer/merge
 | Output prefix | `o` | 输出与中间文件加前缀 | 关 |
 | Collapse identical fragments | `c` | 片段折叠开关（对照用） | true |
 | Maximum reads per region | `mrpr` | 区域 reads 绝对上限 | 4,000,000 |
-| Rescale abundance | `ra` | 丰度按 1/降采样概率还原（TPM 类定量用） | false |
+| Rescale abundance | `ra` | 丰度按 1/降采样概率还原（回到原始 read 计数尺度） | false |
 | Read statistics | `rs` | 预计算 read 统计文件（readstats 工具生成），给后跳过自身统计 | 关 |
 
 `readstats` 工具参数：`m=<bam>`（必需）、`o=<输出文件>`（默认 readstats.stats）、
@@ -168,6 +169,19 @@ cat chr*.Transcript_Predictions.gff3 | perl scripts/gemoseq_tpm.pl - > all.tpm.g
 ```
 
 内存还想再压：`mrpr=2000000 threads=4`。降采样明显的区域想要丰度无偏：`ra=true`。
+
+### TPM 计算（`scripts/gemoseq_tpm.pl`）
+
+给每条 mRNA 行追加 `TPM=` 属性；支持多文件或 `-`（标准输入），`-o <文件>` 指定输出。
+
+- **默认口径（`-f avgcov`，推荐）**：用转录本的 `avgCov` 属性（平均外显子覆盖度，
+  本身已做长度归一）计算：`TPM = avgCov / ΣavgCov × 1e6`。与 StringTie 的覆盖度
+  TPM 口径相同。
+- **旧口径（`-f score`）**：按 score/外显子长度(kb) 计算。只适用于 `ra=false` 跑出
+  的结果。**ra=true 的数据千万别用这个口径**：热点区 score 会被放大到 1/1e-6 倍，
+  少数转录本吞掉几乎全部 TPM 份额，其余全被压成 ≈0（真实数据实测：中位 TPM≈0）。
+  ra=true 的数据请一律用默认 avgCov 口径（avgCov 来自剪接图节点计数，热点区只会
+  饱和、不会爆炸）。
 
 ## 6. 从源码构建
 
