@@ -297,13 +297,22 @@ public class BAMReader implements Iterator<Region>{
 		private int qi = 0;
 		@Override
 		public boolean hasNext() {
-			while(cur == null || !cur.hasNext()) {
+			while(true) {
+				if(cur != null && cur.hasNext()) {
+					return true;
+				}
+				if(cur != null) {
+					// htsjdk allows only one open iterator per reader; close before the next query
+					try {
+						((java.io.Closeable) cur).close();
+					} catch (Exception e) {}
+					cur = null;
+				}
 				if(qi >= restrictRefs.length) {
 					return false;
 				}
 				cur = reader.query(restrictRefs[qi++], 0, 0, false);
 			}
-			return true;
 		}
 		@Override
 		public SAMRecord next() {

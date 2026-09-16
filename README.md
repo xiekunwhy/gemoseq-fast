@@ -90,6 +90,8 @@ original "a pair counts as one observation" semantics.
   producing empty sub-regions that crashed the worker with a `NullPointerException`;
   empty sub-regions are now dropped and the compute path guards against them;
 - unmapped reads (no reference) are skipped safely.
+- **fixed a hang at multi-reference rollover**: htsjdk permits only one open query iterator per reader; restricted runs with more than one reference threw `IllegalStateException: Iteration in progress` on the producer thread, and non-daemon worker threads then kept the JVM alive forever (sleep state). Iterators are now closed between references and pool workers are daemon threads (errors exit cleanly). `readstats` also accepts `r=` (single reference) with the same short names as gemoseq.
+
 
 ### 2.5 htsjdk upgrade, CSI and index handling
 

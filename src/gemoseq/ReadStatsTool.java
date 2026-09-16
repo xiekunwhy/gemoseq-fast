@@ -37,6 +37,7 @@ public class ReadStatsTool implements JstacsTool {
 			pars.add(new FileParameter("Mapped reads","Mapped Reads in BAM format, coordinate sorted","bam",true));
 			pars.add(new SimpleParameter(DataType.STRING,"Output file","Output text file for the statistics",true,"readstats.stats"));
 			pars.add(new SimpleParameter(DataType.INT,"Shortest intron length","Length of the shortest intron considered",true,new NumberValidator<Integer>(0, Integer.MAX_VALUE),10));
+			pars.add(new SimpleParameter(DataType.STRING,"Restrict to reference","Optional: compute statistics only from this reference (same short name r as in gemoseq)",false));
 			pars.add(new FileParameter("Reference list","Optional: text file with one reference name per line; compute statistics only from these references","txt,list,tsv,csv,bed",false));
 		} catch(ParameterException ex) {
 			ex.printStackTrace();
@@ -53,8 +54,14 @@ public class ReadStatsTool implements JstacsTool {
 		int minIntronLength = (int) parameters.getParameterForName("Shortest intron length").getValue();
 
 		String[] restrictRefs = null;
+		String onlyRef = (String) parameters.getParameterForName("Restrict to reference").getValue();
 		Object listVal = parameters.getParameterForName("Reference list").getValue();
-		if(listVal != null) {
+		if(onlyRef != null && !onlyRef.trim().isEmpty() && listVal != null) {
+			throw new Exception("Parameters 'Restrict to reference' and 'Reference list' are mutually exclusive");
+		}
+		if(onlyRef != null && !onlyRef.trim().isEmpty()) {
+			restrictRefs = new String[] {onlyRef.trim()};
+		}else if(listVal != null) {
 			String listFile = ((FileParameter)parameters.getParameterForName("Reference list")).getFileContents().getFilename();
 			java.util.LinkedList<String> refs = new java.util.LinkedList<String>();
 			BufferedReader rd = new BufferedReader(new FileReader(listFile));

@@ -240,7 +240,9 @@ public class TranscriptPrediction implements JstacsTool {
 			workers = new Worker[numThreads];
 			for(int i=0;i<workers.length;i++) {
 				workers[i] = new Worker(this,config,i);
-				(new Thread(workers[i])).start();
+				Thread t = new Thread(workers[i]);
+				t.setDaemon(true); // daemon so that a fatal error in main actually exits the JVM
+				t.start();
 			}
 		}
 		

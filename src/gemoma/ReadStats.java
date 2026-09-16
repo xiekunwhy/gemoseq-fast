@@ -63,10 +63,15 @@ public class ReadStats {
 				sorted.sort((a,b) -> Integer.compare(dict.getSequenceIndex(a), dict.getSequenceIndex(b)));
 				if(reader.hasIndex() && !forceStream) {
 					for(String ref : sorted) {
-						Iterator<SAMRecord> recIt = reader.query(ref, 0, 0, false);
-						while(recIt.hasNext()) {
-							acc.consume(recIt.next());
+						java.io.Closeable recIt = (java.io.Closeable) reader.query(ref, 0, 0, false);
+						Iterator<SAMRecord> it = (Iterator<SAMRecord>) recIt;
+						while(it.hasNext()) {
+							acc.consume(it.next());
 						}
+						// htsjdk allows only one open iterator per reader; close before the next query
+						try {
+							recIt.close();
+						} catch(Exception e) {}
 					}
 				}else {
 					HashSet<String> keep = new HashSet<String>(sorted);

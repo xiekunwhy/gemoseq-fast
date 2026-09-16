@@ -66,6 +66,8 @@
   完全落在长 intron 内的子区间收不到"完全包含"的 read，worker 拆箱空指针；
   空子区域直接丢弃 + 计算路径加保护）；
 - 未比对 read（无参考）安全跳过。
+- **修复多参考序列翻页挂死**：htsjdk 每个 reader 只允许一个打开的查询迭代器，多个参考序列的受限运行在第二条处抛 `IllegalStateException: Iteration in progress`（生产者线程），而非 daemon 的 worker 线程让 JVM 永远挂起（S 睡眠态）。现在迭代器逐条关闭，worker 改为 daemon（出错能干净退出）。`readstats` 也支持 `r=`（单条参考），短名与 gemoseq 一致。
+
 
 ### 2.5 htsjdk 升级、CSI 与索引处理
 
