@@ -119,7 +119,7 @@ for my $f (@files) {
 			my ($id) = $F[8] =~ /ID=([^;]+)/;
 			if (defined $id && exists $tpm{$F[0]}{$id}) {
 				$F[8] =~ s/;?$//;
-				$F[8] .= ";TPM=" . sprintf("%.3f", $tpm{$F[0]}{$id}) . ";";
+				$F[8] .= ";TPM=" . sprintf("%.6f", $tpm{$F[0]}{$id}) . ";";
 				$n_tagged++;
 			}
 			print $ofh join("\t", @F), "\n";
